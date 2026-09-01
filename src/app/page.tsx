@@ -309,6 +309,9 @@ export default function Dashboard() {
     weather: false,
     radiation: false,
     air_quality: false,
+    disease: false,
+    volcanoes: false,
+    power_outages: false,
     infrastructure: false,
     global_incidents: true,
     day_night: true,
@@ -770,6 +773,21 @@ export default function Dashboard() {
     // Air quality
     if ((activeLayers as any).air_quality) {
       loadLayerOnce('air_quality', '/api/air-quality', d => ({ air_quality: d.stations }));
+    }
+
+    // Disease outbreaks
+    if ((activeLayers as any).disease) {
+      loadLayerOnce('disease', '/api/disease', d => ({ disease: d.outbreaks }));
+    }
+
+    // Volcanic activity
+    if ((activeLayers as any).volcanoes) {
+      loadLayerOnce('volcanoes', '/api/volcanoes', d => ({ volcanoes: d.volcanoes }));
+    }
+
+    // US power outages
+    if ((activeLayers as any).power_outages) {
+      loadLayerOnce('power_outages', '/api/power-outages', d => ({ power_outages: d.outages }));
     }
 
     // Ukraine frontline control

@@ -90,6 +90,36 @@ const ALERT_FEEDS: Array<{ layer: string; path: string; pick: (data: Record<stri
       return [...zones, ...live];
     },
   },
+  {
+    layer: 'disease',
+    path: '/api/disease',
+    pick: (d) => (Array.isArray(d.outbreaks) ? d.outbreaks : []),
+  },
+  {
+    layer: 'volcanoes',
+    path: '/api/volcanoes',
+    pick: (d) => (Array.isArray(d.volcanoes) ? d.volcanoes : []),
+  },
+  {
+    layer: 'power_outages',
+    path: '/api/power-outages',
+    pick: (d) => (Array.isArray(d.outages) ? d.outages : []),
+  },
+  {
+    layer: 'radiation',
+    path: '/api/radiation',
+    pick: (d) => (Array.isArray(d.stations) ? d.stations : []),
+  },
+  {
+    layer: 'air_quality',
+    path: '/api/air-quality',
+    pick: (d) => (Array.isArray(d.stations) ? d.stations : []),
+  },
+  {
+    layer: 'internet_outages',
+    path: '/api/radar',
+    pick: (d) => (Array.isArray(d.outages) ? d.outages : []),
+  },
 ];
 
 /** Cap per layer so a huge feed cannot blow up memory or the match loop. */

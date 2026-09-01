@@ -305,7 +305,7 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
       createDot(map, 'dot-fire', isGhost ? phantomPurple : '#E65100', 10);
       createDot(map, 'dot-cctv', cameraColor, 10);
 
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks', 'air-quality', 'frontlines'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks', 'air-quality', 'frontlines', 'disease', 'volcanoes', 'power-outages'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       // ── FLIGHT ROUTE VISUALIZATION SOURCES & LAYERS ──
@@ -730,6 +730,47 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
       map.addLayer({ id: 'aq-label', type: 'symbol', source: 'air-quality', minzoom: 3, layout: {
         'text-field': ['concat', ['get','city'], '  ', ['to-string', ['get','pm25']]], 'text-size': 9,
         'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.5], 'text-allow-overlap': false,
+      }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Disease outbreaks — WHO DON, placed on country centroids
+      map.addLayer({ id: 'disease-glow', type: 'circle', source: 'disease', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,12, 5,24, 10,44],
+        'circle-color': ['get','color'], 'circle-opacity': 0.13, 'circle-blur': 1,
+      }});
+      map.addLayer({ id: 'disease-dots', type: 'circle', source: 'disease', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,5, 5,8, 10,11],
+        'circle-color': ['get','color'], 'circle-opacity': 0.9,
+        'circle-stroke-width': 1.5, 'circle-stroke-color': '#fff', 'circle-stroke-opacity': 0.5,
+      }});
+      map.addLayer({ id: 'disease-label', type: 'symbol', source: 'disease', minzoom: 3, layout: {
+        'text-field': ['get','disease'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.6], 'text-max-width': 14, 'text-allow-overlap': false,
+      }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Volcanic activity — Smithsonian GVP weekly report
+      map.addLayer({ id: 'volcano-glow', type: 'circle', source: 'volcanoes', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,10, 5,20, 10,36],
+        'circle-color': '#FF6D00', 'circle-opacity': 0.14, 'circle-blur': 1,
+      }});
+      map.addLayer({ id: 'volcano-dots', type: 'circle', source: 'volcanoes', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,4, 5,7, 10,10],
+        'circle-color': '#FF6D00', 'circle-opacity': 0.9,
+        'circle-stroke-width': 1.5, 'circle-stroke-color': '#FFAB40', 'circle-stroke-opacity': 0.6,
+      }});
+      map.addLayer({ id: 'volcano-label', type: 'symbol', source: 'volcanoes', minzoom: 3, layout: {
+        'text-field': ['get','name'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.5], 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#FFAB40', 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // US power outages — radius scales with customers affected
+      map.addLayer({ id: 'outage-dots', type: 'circle', source: 'power-outages', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','customers'], 0,4, 1000,9, 50000,20],
+        'circle-color': ['get','color'], 'circle-opacity': 0.75,
+        'circle-stroke-width': 1, 'circle-stroke-color': ['get','color'], 'circle-stroke-opacity': 0.4,
+      }});
+      map.addLayer({ id: 'outage-label', type: 'symbol', source: 'power-outages', minzoom: 5, layout: {
+        'text-field': ['concat', ['to-string', ['get','customers']], ' out'], 'text-size': 9,
+        'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.4], 'text-allow-overlap': false,
       }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
 
       // Ukraine frontline — territorial control polygons from DeepStateMap
@@ -1990,6 +2031,26 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
 
   useEffect(() => {
     if (!mapReady) return;
+    const pt = (arr: any[], props: (x: any) => any) => (arr ?? []).map((x: any) => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [x.lng, x.lat] }, properties: props(x),
+    }));
+    const al = activeLayers as any;
+    setGeo('disease', al.disease && data.disease ? pt(data.disease, (o: any) => ({
+      title: o.title, disease: o.disease, country: o.country, summary: o.summary,
+      url: o.url, published: o.published, severity: o.severity, color: o.color, source: o.source,
+    })) : []);
+    setGeo('volcanoes', al.volcanoes && data.volcanoes ? pt(data.volcanoes, (v: any) => ({
+      name: v.name, country: v.country, activity: v.activity, summary: v.summary,
+      url: v.url, published: v.published, source: v.source,
+    })) : []);
+    setGeo('power-outages', al.power_outages && data.power_outages ? pt(data.power_outages, (o: any) => ({
+      utility: o.utility, county: o.county, state: o.state, customers: o.customers,
+      cause: o.cause, status: o.status, started: o.started, restoration: o.restoration, color: o.color,
+    })) : []);
+  }, [mapReady, data.disease, data.volcanoes, data.power_outages, (activeLayers as any).disease, (activeLayers as any).volcanoes, (activeLayers as any).power_outages, setGeo, activeLayers, data]);
+
+  useEffect(() => {
+    if (!mapReady) return;
     // Already a normalised FeatureCollection — the route reshapes DeepState's
     // Google-Earth export server-side.
     const fc = (activeLayers as any).frontlines ? data.frontlines : null;
@@ -2144,6 +2205,9 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
     setVis(['rad-glow','rad-dots','rad-label'], activeLayers.radiation);
     setVis(['aq-glow','aq-dots','aq-label'], (activeLayers as any).air_quality);
     setVis(['frontline-fill','frontline-line'], (activeLayers as any).frontlines);
+    setVis(['disease-glow','disease-dots','disease-label'], (activeLayers as any).disease);
+    setVis(['volcano-glow','volcano-dots','volcano-label'], (activeLayers as any).volcanoes);
+    setVis(['outage-dots','outage-label'], (activeLayers as any).power_outages);
     setVis(['sdk-sea','sdk-sea-glow','sdk-sea-atmo'], activeLayers.sdk_sea !== false);
     setVis(['sdk-air','sdk-air-glow','sdk-air-atmo'], activeLayers.sdk_air !== false);
     setVis(['sdk-intel','sdk-intel-glow','sdk-intel-atmo'], activeLayers.sdk_naval !== false);

@@ -103,6 +103,9 @@ const LAYER_GROUPS: LayerGroupDef[] = [
       { key: 'radiation', label: 'Radiation', dataKey: 'radiation' },
       { key: 'air_quality', label: 'Air Quality', dataKey: 'air_quality' },
       { key: 'balloons', label: 'Radiosondes', dataKey: 'balloons' },
+      { key: 'volcanoes', label: 'Volcanic Activity', dataKey: 'volcanoes' },
+      { key: 'disease', label: 'Disease Outbreaks', dataKey: 'disease' },
+      { key: 'power_outages', label: 'Power Outages (US)', dataKey: 'power_outages' },
     ],
   },
   {
