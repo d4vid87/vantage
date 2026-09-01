@@ -312,6 +312,11 @@ export default function Dashboard() {
     disease: false,
     volcanoes: false,
     power_outages: false,
+    travel_advisories: false,
+    gps_jamming: false,
+    acled: false,
+    ransomware: false,
+    tor_exits: false,
     infrastructure: false,
     global_incidents: true,
     day_night: true,
@@ -788,6 +793,31 @@ export default function Dashboard() {
     // US power outages
     if ((activeLayers as any).power_outages) {
       loadLayerOnce('power_outages', '/api/power-outages', d => ({ power_outages: d.outages }));
+    }
+
+    // Travel advisories — joined onto the shared country polygons
+    if ((activeLayers as any).travel_advisories) {
+      loadLayerOnce('travel_advisories', '/api/travel-advisories', d => ({ travel_advisories: d.advisories }));
+    }
+
+    // GPS/GNSS interference — hex polygons decoded server-side
+    if ((activeLayers as any).gps_jamming) {
+      loadLayerOnce('gps_jamming', '/api/gps-jamming', d => ({ gps_jamming: d.cells }));
+    }
+
+    // ACLED conflict events (credential-gated)
+    if ((activeLayers as any).acled && capabilities.acled) {
+      loadLayerOnce('acled', '/api/acled', d => ({ acled: d.events }));
+    }
+
+    // Ransomware victims
+    if ((activeLayers as any).ransomware) {
+      loadLayerOnce('ransomware', '/api/ransomware', d => ({ ransomware: d.victims }));
+    }
+
+    // Tor exit nodes by country
+    if ((activeLayers as any).tor_exits) {
+      loadLayerOnce('tor_exits', '/api/tor-exits', d => ({ tor_exits: d.countries }));
     }
 
     // Ukraine frontline control

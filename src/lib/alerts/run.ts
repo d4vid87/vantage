@@ -120,6 +120,18 @@ const ALERT_FEEDS: Array<{ layer: string; path: string; pick: (data: Record<stri
     path: '/api/radar',
     pick: (d) => (Array.isArray(d.outages) ? d.outages : []),
   },
+  {
+    layer: 'ransomware',
+    path: '/api/ransomware',
+    pick: (d) => (Array.isArray(d.victims) ? d.victims : []),
+  },
+  {
+    // Credential-gated: the route 503s when unconfigured, which collectSnapshot
+    // treats as an absent layer rather than an error.
+    layer: 'acled',
+    path: '/api/acled',
+    pick: (d) => (Array.isArray(d.events) ? d.events : []),
+  },
 ];
 
 /** Cap per layer so a huge feed cannot blow up memory or the match loop. */

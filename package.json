@@ -17,6 +17,7 @@
     "better-sqlite3": "^13.0.3",
     "framer-motion": "^12.38.0",
     "google-libphonenumber": "^3.2.44",
+    "h3-js": "^4.5.0",
     "hls.js": "^1.6.16",
     "lightweight-charts": "^5.2.0",
     "lucide-react": "^1.14.0",

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plane, Satellite, Sun, AlertTriangle, Camera,
   CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal
+  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal, Crosshair
 } from 'lucide-react';
 import StyleStudio from './StyleStudio';
 
@@ -120,12 +120,24 @@ const LAYER_GROUPS: LayerGroupDef[] = [
     ],
   },
   {
+    label: 'GEO',
+    fullLabel: 'GEOPOLITICAL',
+    icon: Crosshair,
+    layers: [
+      { key: 'travel_advisories', label: 'Travel Advisories', dataKey: 'travel_advisories' },
+      { key: 'gps_jamming', label: 'GPS Interference', dataKey: 'gps_jamming' },
+      { key: 'acled', label: 'ACLED Conflict Events', dataKey: 'acled', requires: 'acled' },
+    ],
+  },
+  {
     label: 'NETWORK',
     fullLabel: 'NETWORK INTEL',
     icon: Network,
     layers: [
       { key: 'malware', label: 'Live Malware', dataKey: 'malware_threats' },
       { key: 'cyber_attacks', label: 'Live Attacks', dataKey: 'cyber_attacks' },
+      { key: 'ransomware', label: 'Ransomware Victims', dataKey: 'ransomware' },
+      { key: 'tor_exits', label: 'Tor Exit Nodes', dataKey: 'tor_exits' },
     ],
   },
   {

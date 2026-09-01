@@ -305,7 +305,7 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
       createDot(map, 'dot-fire', isGhost ? phantomPurple : '#E65100', 10);
       createDot(map, 'dot-cctv', cameraColor, 10);
 
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks', 'air-quality', 'frontlines', 'disease', 'volcanoes', 'power-outages'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks', 'air-quality', 'frontlines', 'disease', 'volcanoes', 'power-outages', 'countries', 'gps-jamming', 'acled', 'ransomware', 'tor-exits'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       // ── FLIGHT ROUTE VISUALIZATION SOURCES & LAYERS ──
@@ -772,6 +772,59 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
         'text-field': ['concat', ['to-string', ['get','customers']], ' out'], 'text-size': 9,
         'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.4], 'text-allow-overlap': false,
       }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Country choropleth — one shared polygon source, recoloured by whichever
+      // country-scoped layer is active. Loaded lazily so the 168KB of geometry
+      // is only fetched when a choropleth is switched on.
+      map.addLayer({ id: 'country-fill', type: 'fill', source: 'countries', paint: {
+        'fill-color': ['coalesce', ['feature-state', 'color'], 'rgba(0,0,0,0)'],
+        'fill-opacity': ['case', ['!=', ['coalesce', ['feature-state','color'], ''], ''], 0.4, 0],
+      }});
+      map.addLayer({ id: 'country-outline', type: 'line', source: 'countries', paint: {
+        'line-color': ['coalesce', ['feature-state', 'color'], 'rgba(0,0,0,0)'],
+        'line-width': 0.6, 'line-opacity': 0.55,
+      }});
+
+      // GPS/GNSS interference — H3 cells decoded to polygons upstream
+      map.addLayer({ id: 'jam-fill', type: 'fill', source: 'gps-jamming', paint: {
+        'fill-color': ['get','color'], 'fill-opacity': ['interpolate',['linear'],['get','ratio'], 0,0.12, 1,0.5],
+      }});
+      map.addLayer({ id: 'jam-line', type: 'line', source: 'gps-jamming', paint: {
+        'line-color': ['get','color'], 'line-width': 0.5, 'line-opacity': 0.5,
+      }});
+
+      // ACLED conflict events — radius carries fatalities
+      map.addLayer({ id: 'acled-dots', type: 'circle', source: 'acled', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','fatalities'], 0,4, 10,9, 100,18],
+        'circle-color': ['get','color'], 'circle-opacity': 0.8,
+        'circle-stroke-width': 1, 'circle-stroke-color': ['get','color'], 'circle-stroke-opacity': 0.4,
+      }});
+      map.addLayer({ id: 'acled-label', type: 'symbol', source: 'acled', minzoom: 5, layout: {
+        'text-field': ['get','subtype'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.4], 'text-allow-overlap': false,
+      }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Ransomware victims — gang leak-site claims
+      map.addLayer({ id: 'ransom-dots', type: 'circle', source: 'ransomware', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,3.5, 5,6, 10,9],
+        'circle-color': ['get','color'], 'circle-opacity': 0.8,
+        'circle-stroke-width': 1, 'circle-stroke-color': '#F8BBD0', 'circle-stroke-opacity': 0.4,
+      }});
+      map.addLayer({ id: 'ransom-label', type: 'symbol', source: 'ransomware', minzoom: 4, layout: {
+        'text-field': ['get','victim'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-offset': [0, 1.3], 'text-max-width': 14, 'text-allow-overlap': false,
+      }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Tor exit nodes — aggregated per country, sized by relay count
+      map.addLayer({ id: 'tor-dots', type: 'circle', source: 'tor-exits', paint: {
+        'circle-radius': ['interpolate',['linear'],['get','relays'], 1,4, 100,10, 1200,22],
+        'circle-color': ['get','color'], 'circle-opacity': 0.6,
+        'circle-stroke-width': 1, 'circle-stroke-color': '#B39DDB', 'circle-stroke-opacity': 0.5,
+      }});
+      map.addLayer({ id: 'tor-label', type: 'symbol', source: 'tor-exits', minzoom: 3, layout: {
+        'text-field': ['concat', ['to-string', ['get','relays']], ' exits'], 'text-size': 9,
+        'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.4], 'text-allow-overlap': false,
+      }, paint: { 'text-color': '#B39DDB', 'text-halo-color': '#000', 'text-halo-width': 1 }});
 
       // Ukraine frontline — territorial control polygons from DeepStateMap
       map.addLayer({ id: 'frontline-fill', type: 'fill', source: 'frontlines', paint: {
@@ -2049,6 +2102,72 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
     })) : []);
   }, [mapReady, data.disease, data.volcanoes, data.power_outages, (activeLayers as any).disease, (activeLayers as any).volcanoes, (activeLayers as any).power_outages, setGeo, activeLayers, data]);
 
+  // Country polygons back every choropleth, so they are fetched once, lazily,
+  // the first time one of those layers is switched on.
+  const countriesLoaded = useRef(false);
+  // MapLibre does not expose the data handed to setData, so the id/iso pairs
+  // the choropleth needs are kept here rather than read back off the source.
+  const countryIds = useRef<Array<{ id: number; iso: string }>>([]);
+  const [countriesReady, setCountriesReady] = useState(false);
+  useEffect(() => {
+    if (!mapReady) return;
+    const al = activeLayers as any;
+    const wantsChoropleth = al.travel_advisories || al.country_risk;
+    if (!wantsChoropleth || countriesLoaded.current) return;
+    countriesLoaded.current = true;
+    fetch('/data/world-countries.json')
+      .then(r => r.json())
+      .then((fc: any) => {
+        const m = mapRef.current;
+        if (!m) return;
+        // feature-state needs stable ids, which the raw file has no reason to carry.
+        fc.features.forEach((f: any, i: number) => { f.id = i; });
+        countryIds.current = fc.features.map((f: any) => ({ id: f.id, iso: f.properties?.iso }));
+        (m.getSource('countries') as any)?.setData(fc);
+        // Signals the paint effect, which would otherwise have run before the
+        // geometry existed and never re-run.
+        setCountriesReady(true);
+      })
+      .catch(() => { countriesLoaded.current = false; });
+  }, [mapReady, (activeLayers as any).travel_advisories, (activeLayers as any).country_risk, activeLayers]);
+
+  // Paint the choropleth by feature-state so the geometry is never rewritten.
+  useEffect(() => {
+    if (!mapReady) return;
+    const m = mapRef.current;
+    if (!m || !m.getSource('countries')) return;
+    const al = activeLayers as any;
+    const byIso = new Map<string, string>();
+    if (al.travel_advisories && data.travel_advisories) {
+      for (const a of data.travel_advisories) byIso.set(a.iso, a.color);
+    }
+    for (const { id, iso } of countryIds.current) {
+      m.setFeatureState({ source: 'countries', id }, { color: byIso.get(iso) ?? '' });
+    }
+  }, [mapReady, countriesReady, data.travel_advisories, (activeLayers as any).travel_advisories, activeLayers, data]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    const pt = (arr: any[], props: (x: any) => any) => (arr ?? []).map((x: any) => ({
+      type: 'Feature', geometry: { type: 'Point', coordinates: [x.lng, x.lat] }, properties: props(x),
+    }));
+    const al = activeLayers as any;
+    setGeo('acled', al.acled && data.acled ? pt(data.acled, (e: any) => ({
+      type: e.type, subtype: e.subtype, actor1: e.actor1, actor2: e.actor2, country: e.country,
+      location: e.location, fatalities: e.fatalities, date: e.date, notes: e.notes, color: e.color,
+    })) : []);
+    setGeo('ransomware', al.ransomware && data.ransomware ? pt(data.ransomware, (v: any) => ({
+      victim: v.victim, group: v.group, country: v.country, sector: v.sector,
+      discovered: v.discovered, url: v.url, color: v.color,
+    })) : []);
+    setGeo('tor-exits', al.tor_exits && data.tor_exits ? pt(data.tor_exits, (c: any) => ({
+      country: c.country, country_name: c.country_name, relays: c.relays,
+      bandwidth: c.bandwidth, color: c.color,
+    })) : []);
+    const jam = al.gps_jamming ? data.gps_jamming : null;
+    setGeo('gps-jamming', jam?.features ?? []);
+  }, [mapReady, data.acled, data.ransomware, data.tor_exits, data.gps_jamming, activeLayers, setGeo, data]);
+
   useEffect(() => {
     if (!mapReady) return;
     // Already a normalised FeatureCollection — the route reshapes DeepState's
@@ -2208,6 +2327,11 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
     setVis(['disease-glow','disease-dots','disease-label'], (activeLayers as any).disease);
     setVis(['volcano-glow','volcano-dots','volcano-label'], (activeLayers as any).volcanoes);
     setVis(['outage-dots','outage-label'], (activeLayers as any).power_outages);
+    setVis(['country-fill','country-outline'], (activeLayers as any).travel_advisories || (activeLayers as any).country_risk);
+    setVis(['jam-fill','jam-line'], (activeLayers as any).gps_jamming);
+    setVis(['acled-dots','acled-label'], (activeLayers as any).acled);
+    setVis(['ransom-dots','ransom-label'], (activeLayers as any).ransomware);
+    setVis(['tor-dots','tor-label'], (activeLayers as any).tor_exits);
     setVis(['sdk-sea','sdk-sea-glow','sdk-sea-atmo'], activeLayers.sdk_sea !== false);
     setVis(['sdk-air','sdk-air-glow','sdk-air-atmo'], activeLayers.sdk_air !== false);
     setVis(['sdk-intel','sdk-intel-glow','sdk-intel-atmo'], activeLayers.sdk_naval !== false);
