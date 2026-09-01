@@ -1,0 +1,140 @@
+name: vantage
+services:
+  vantage:
+    # Builds locally from the Dockerfile so you always run the cloned code.
+    # To use the prebuilt image instead, replace the `build:` block below with
+    # `image: ghcr.io/d4vid87/vantage:latest`.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vantage
+    # Host port is configurable via VANTAGE_PORT in .env (defaults to 3000).
+    ports:
+      - "${VANTAGE_PORT:-3000}:3000"
+    # Optional API keys / scanner backend — copy .env.template to .env and
+    # fill in what you need. Missing file is ignored (keyless feeds still work).
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - NODE_OPTIONS=--dns-result-order=ipv4first
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - VANTAGE_DATA_DIR=/data
+    volumes:
+      # SQLite store: watchlists, alerts, investigations, RECON audit trail.
+      - vantage-data:/data
+    extra_hosts:
+      # Lets VANTAGE_AI_PROVIDER=ollama reach an Ollama daemon on the host at
+      # http://host.docker.internal:11434
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    networks:
+      - default
+
+  vantage-cache:
+    image: nginx:alpine
+    container_name: vantage-cache
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - nginx-cache:/var/cache/nginx
+    depends_on:
+      - vantage
+    restart: unless-stopped
+    networks:
+      - default
+
+  vantage-intel:
+    build:
+      context: ./intel
+      dockerfile: Dockerfile
+    container_name: vantage-intel
+    ports:
+      - "4000:4000"
+    restart: unless-stopped
+    networks:
+      - default
+
+volumes:
+  nginx-cache:
+  vantage-data:
+
+# ── CasaOS app-store metadata (ignored by plain Docker Compose) ──
+x-casaos:
+  architectures:
+    - amd64
+    - arm64
+  main: vantage
+  author: d4vid87
+  developer: d4vid87
+  category: Network
+  description:
+    en_us: >-
+      VANTAGE is a self-hosted OSINT situational-awareness dashboard. It
+      aggregates real-time global intelligence across aviation, maritime,
+      CCTV networks, seismic activity, wildfires, news feeds, weather, space
+      weather, cyber threats (CVEs) and conflict zones into a single
+      GPU-accelerated MapLibre interface, then adds an AI analyst copilot
+      (local Ollama by default), persistent watchlists with Discord / ntfy /
+      email / webhook alerts, and link-analysis investigations exported as
+      dossiers. Most features work with no API keys.
+  tagline:
+    en_us: Real-time global OSINT intelligence dashboard
+  title:
+    en_us: VANTAGE
+  icon: https://raw.githubusercontent.com/d4vid87/vantage/main/public/casaos-icon.png
+  thumbnail: https://raw.githubusercontent.com/d4vid87/vantage/main/public/og-image.png
+  screenshot_link:
+    - https://raw.githubusercontent.com/d4vid87/vantage/main/public/og-image.png
+  scheme: http
+  hostname: ""
+  port_map: "3000"
+  index: /
+  webui_port: 3000
+  envs:
+    - container: VANTAGE_AI_PROVIDER
+      description:
+        en_us: "AI brain: ollama (local, default), claude, or gemini."
+    - container: OLLAMA_URL
+      description:
+        en_us: "(Optional) Ollama endpoint, e.g. http://host.docker.internal:11434"
+    - container: ANTHROPIC_API_KEY
+      description:
+        en_us: "(Optional) Anthropic API key, if VANTAGE_AI_PROVIDER=claude."
+    - container: VANTAGE_DISCORD_WEBHOOK
+      description:
+        en_us: "(Optional) Discord webhook URL for watchlist alerts."
+    - container: VANTAGE_NTFY_TOPIC
+      description:
+        en_us: "(Optional) ntfy topic for push alerts."
+    - container: VANTAGE_RECON_ENABLED
+      description:
+        en_us: "Set to 1 to enable the RECON toolkit. Off by default — read AUTHORIZED_USE.md first."
+    - container: SCANNER_URL
+      description:
+        en_us: "(Optional) RECON scanner backend URL, e.g. http://scanner:7700"
+    - container: SCANNER_KEY
+      description:
+        en_us: "(Optional) RECON scanner shared secret (must match backend VANTAGE_KEY)."
+    - container: FIRMS_API_KEY
+      description:
+        en_us: "(Optional) NASA FIRMS API key for active-fire data."
+    - container: AIS_API_KEY
+      description:
+        en_us: "(Optional) aisstream.io key for maritime vessel tracking."
+    - container: OPENSKY_CLIENT_ID
+      description:
+        en_us: "(Optional) OpenSky OAuth2 client id for higher aircraft rate limits."
+    - container: OPENSKY_CLIENT_SECRET
+      description:
+        en_us: "(Optional) OpenSky OAuth2 client secret."
+    - container: N2YO_API_KEY
+      description:
+        en_us: "(Optional) N2YO key for satellite tracking."
+  ports:
+    - container: "3000"
+      description:
+        en_us: "Web UI (HTTP)."
