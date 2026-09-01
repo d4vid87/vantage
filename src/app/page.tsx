@@ -309,7 +309,6 @@ export default function Dashboard() {
     radiation: false,
     infrastructure: false,
     global_incidents: true,
-    war_alerts: false,
     day_night: true,
     cables: true,
     sdk_sea: true,
@@ -352,10 +351,10 @@ export default function Dashboard() {
 
     // Probe which credential-gated feeds this deployment has configured, so the
     // layer panel can hide toggles that could never return data.
-    fetch('/api/cloudflare-radar?probe=1')
+    fetch('/api/health')
       .then(r => (r.ok ? r.json() : null))
-      .then(p => { if (p) setCapabilities(c => ({ ...c, cloudflare: !!p.configured })); })
-      .catch(() => { /* leave the layer hidden */ });
+      .then(h => { if (h?.capabilities) setCapabilities(h.capabilities); })
+      .catch(() => { /* leave gated layers hidden */ });
 
     // Delay geolocation until map is ready (after splash screen clears)
     const geoTimer = setTimeout(() => {

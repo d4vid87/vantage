@@ -196,15 +196,16 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
 
         const urls: string[] = [];
         for (let i = 0; i < totalHosts; i++) {
-          urls.push(`https://internetdb.shodan.io/${numberToIp((subnetStart + i) >>> 0)}`);
+          urls.push(`/api/osint/shodan?ip=${numberToIp((subnetStart + i) >>> 0)}`);
         }
 
         const shodanResults = await batchFetch<ShodanInternetDBResponse>(urls, 15, async (u) => {
           try {
-            const r = await fetch(u, { cache: 'no-store' });
-            if (r.status === 404) return null;
+            const r = await fetch(u);
             if (!r.ok) return null;
-            return await r.json();
+            const body = await r.json();
+            if (!body?.ip || (body.status && !body.ports?.length)) return null;
+            return body;
           } catch {
             return null;
           }
@@ -258,7 +259,7 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
         case 'bgp': url = `/api/osint/bgp?query=${encodeURIComponent(query)}`; break;
         case 'mac': url = `/api/osint/mac?mac=${encodeURIComponent(query)}`; break;
         case 'phone': url = `/api/osint/phone?number=${encodeURIComponent(query)}`; break;
-        case 'leaks': url = `https://api.xposedornot.com/v1/breach-analytics?email=${encodeURIComponent(query)}`; break;
+        case 'leaks': url = `/api/osint/leaks?email=${encodeURIComponent(query)}`; break;
         case 'infostealer': url = `/api/osint/hudsonrock?query=${encodeURIComponent(query)}`; break;
         case 'crypto': url = `/api/osint/crypto?address=${encodeURIComponent(query)}`; break;
         case 'username': url = `/api/osint/username?username=${encodeURIComponent(query)}`; break;
@@ -269,20 +270,9 @@ function OsintPanelInner({ isMobile, onSweepVisualize, onScanGeolocate }: OsintP
         case 'ssl': url = `/api/scanner?target=${encodeURIComponent(query)}&type=ssl`; break;
         case 'subdomains': url = `/api/scanner?target=${encodeURIComponent(query)}&type=subdomains`; break;
         case 'tech': url = `/api/scanner?target=${encodeURIComponent(query)}&type=tech`; break;
-        case 'shodan': url = `https://internetdb.shodan.io/${encodeURIComponent(query)}`; break;
+        case 'shodan': url = `/api/osint/shodan?ip=${encodeURIComponent(query)}`; break;
       }
-      const res = await fetch(url, activeTab === 'shodan' ? { cache: 'no-store' } : undefined);
-      if (activeTab === 'shodan' && res.status === 404) {
-        setResults({ ip: query, status: 'No Shodan InternetDB records found', ports: [], cpes: [], hostnames: [], tags: [], vulns: [] });
-        setLoading(false);
-        return;
-      }
-      if (activeTab === 'leaks' && res.status === 404) {
-        setResults({ email: query, breached: false, breaches: [], data_exposed: [] });
-        setHistory(prev => [{ tab: activeTab, query, time: new Date().toLocaleTimeString() }, ...prev.slice(0, 9)]);
-        setLoading(false);
-        return;
-      }
+      const res = await fetch(url);
       const data = await res.json();
       if (res.ok) {
         let parsedData = data;

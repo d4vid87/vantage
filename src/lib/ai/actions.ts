@@ -37,7 +37,6 @@ export const ALLOWED_LAYERS = [
   'radiation',
   'infrastructure',
   'global_incidents',
-  'war_alerts',
   'malware',
   'cyber_attacks',
   'gdelt_events',
