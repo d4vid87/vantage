@@ -21,10 +21,10 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-# The Next.js standalone trace does not follow the native .node binary.
+# The Next.js standalone trace does not follow better-sqlite3's prebuilt
+# .node binary, so the package is copied in whole. It has no runtime deps of
+# its own (node-addon-api is build-time only).
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules/bindings ./node_modules/bindings
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules/file-uri-to-path ./node_modules/file-uri-to-path
 
 # Watchlists, alerts, investigations and the RECON audit trail live here.
 ENV VANTAGE_DATA_DIR=/data
