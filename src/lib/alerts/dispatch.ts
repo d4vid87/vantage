@@ -62,15 +62,32 @@ async function sendDiscord(alert: Alert): Promise<void> {
   if (!res.ok) throw new Error(`Discord webhook ${res.status}`);
 }
 
+/**
+ * ntfy carries the title in an HTTP header, and headers are ByteString: any
+ * character above U+00FF throws before the request is even sent. Real alert
+ * titles contain em-dashes and curly quotes routinely — a news headline is
+ * enough — so the header is transliterated to ASCII rather than trusted.
+ */
+export function asciiHeader(value: string): string {
+  return value
+    .replace(/[\u2010-\u2015]/g, '-')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u2026/g, '...')
+    .normalize('NFKD')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[^\x00-\x7F]/g, '');
+}
+
 async function sendNtfy(alert: Alert): Promise<void> {
   const base = process.env.VANTAGE_NTFY_URL?.trim() || 'https://ntfy.sh';
   const topic = process.env.VANTAGE_NTFY_TOPIC?.trim();
   if (!topic) throw new Error('VANTAGE_NTFY_TOPIC not set');
 
   const headers: Record<string, string> = {
-    Title: alert.title.slice(0, 200),
+    Title: asciiHeader(alert.title).slice(0, 200),
     Priority: NTFY_PRIORITY[alert.severity] ?? 'default',
-    Tags: `warning,${alert.severity.toLowerCase()}`,
+    Tags: `warning,${asciiHeader(alert.severity).toLowerCase()}`,
   };
   const token = process.env.VANTAGE_NTFY_TOKEN?.trim();
   if (token) headers.Authorization = `Bearer ${token}`;

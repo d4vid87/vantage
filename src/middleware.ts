@@ -17,6 +17,7 @@ const PROTECTED_API = [
   '/api/report',
   '/api/ai',
   '/api/osint',
+  '/api/briefs',
 ];
 
 function isProtectedApi(path: string): boolean {

@@ -72,6 +72,21 @@ CREATE TABLE IF NOT EXISTS recon_audit (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_audit_created ON recon_audit (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS briefs (
+  id         TEXT PRIMARY KEY,
+  markdown   TEXT NOT NULL,
+  provider   TEXT,
+  model      TEXT,
+  meta       TEXT,                        -- JSON: record counts per layer
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_briefs_created ON briefs (created_at DESC);
 `;
 
 export function db(): Database.Database {

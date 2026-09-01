@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Bot, Bell, Share2 } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Bot, Bell, Share2, FileText } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -27,6 +27,7 @@ import ArcGISPanel from '@/components/ArcGISPanel';
 import type { CopilotAction } from '@/lib/ai/actions';
 const CopilotPanel = dynamic(() => import('@/components/CopilotPanel'));
 const WatchlistPanel = dynamic(() => import('@/components/WatchlistPanel'));
+const BriefPanel = dynamic(() => import('@/components/BriefPanel'));
 const InvestigationGraph = dynamic(() => import('@/components/InvestigationGraph'));
 const VantageMap = dynamic(() => import('@/components/VantageMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
@@ -256,6 +257,7 @@ export default function Dashboard() {
   const [showArcGIS, setShowArcGIS] = useState(false);
   const [showCopilot, setShowCopilot] = useState(false);
   const [showWatchlists, setShowWatchlists] = useState(false);
+  const [showBriefs, setShowBriefs] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
@@ -1425,6 +1427,7 @@ export default function Dashboard() {
         onClose={() => setShowWatchlists(false)}
         activeRing={activeDrawnRing}
       />
+      <BriefPanel open={showBriefs} onClose={() => setShowBriefs(false)} />
       <InvestigationGraph open={showGraph} onClose={() => setShowGraph(false)} />
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
@@ -1447,6 +1450,13 @@ export default function Dashboard() {
             <Bell className={`w-4 h-4 ${showWatchlists ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">WATCH</span>
+        </div>
+
+        <div className="relative group">
+          <button onClick={() => setShowBriefs(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showBriefs ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Intelligence briefs — scheduled AI read-outs of the live picture" aria-label="Intelligence briefs" aria-expanded={showBriefs}>
+            <FileText className={`w-4 h-4 ${showBriefs ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">BRIEFS</span>
         </div>
 
         <div className="relative group">

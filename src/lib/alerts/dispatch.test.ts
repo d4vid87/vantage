@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { channelStatus, dispatchAlert } from './dispatch';
+import { channelStatus, dispatchAlert, asciiHeader } from './dispatch';
 import type { Alert } from './types';
 
 // The webhook channel resolves its target through the SSRF guard. Stub DNS so
@@ -155,5 +155,23 @@ describe('channelStatus', () => {
   it('flags a channel once its environment is set', () => {
     process.env.VANTAGE_DISCORD_WEBHOOK = 'https://discord.test/hook';
     expect(channelStatus().discord).toBe(true);
+  });
+});
+
+describe('asciiHeader', () => {
+  it('transliterates characters an HTTP header cannot carry', () => {
+    // ntfy puts the title in a header, and headers are ByteString: an em-dash
+    // throws before the request is sent. Real titles contain them.
+    expect(asciiHeader('VANTAGE Daily Brief — 2026-09-01')).toBe('VANTAGE Daily Brief - 2026-09-01');
+    expect(asciiHeader('Iran’s “plan”…')).toBe('Iran\'s "plan"...');
+  });
+
+  it('strips anything left above latin-1 so encoding cannot fail', () => {
+    const out = asciiHeader('Beijing 北京 ⚠');
+    expect(/^[\x00-\x7F]*$/.test(out)).toBe(true);
+  });
+
+  it('leaves plain ASCII untouched', () => {
+    expect(asciiHeader('M6.1 earthquake near Tokyo')).toBe('M6.1 earthquake near Tokyo');
   });
 });

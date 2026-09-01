@@ -6,7 +6,10 @@
  *  the watchlist evaluator, so alerts fire whether or not anyone has the UI
  *  open — the whole point of persisting rules server-side.
  *
- *  Disable with VANTAGE_SCHEDULER=off.
+ *  It also drives the scheduled daily brief, which is off unless
+ *  VANTAGE_DAILY_BRIEF is set to a local HH:MM.
+ *
+ *  Disable both with VANTAGE_SCHEDULER=off.
  * ═══════════════════════════════════════════════════════════════
  */
 
@@ -54,4 +57,35 @@ export async function register() {
   if (typeof timer.unref === 'function') timer.unref();
 
   console.log(`[VANTAGE] watchlist scheduler active — every ${Math.round(interval / 1000)}s`);
+
+  // ── Scheduled daily brief ──
+  const briefAt = (process.env.VANTAGE_DAILY_BRIEF || '').trim();
+  if (!briefAt) return;
+
+  const { generateDailyBrief, shouldRunBrief, getSetting, setSetting, BRIEF_LAST_RUN_KEY } =
+    await import('./src/lib/brief');
+
+  let briefing = false;
+  const briefTick = async () => {
+    if (briefing) return;
+    try {
+      if (!shouldRunBrief(new Date(), briefAt, getSetting(BRIEF_LAST_RUN_KEY))) return;
+      briefing = true;
+      const now = new Date();
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      // Claim the day before generating: a slow model must not let a second
+      // tick start a duplicate brief.
+      setSetting(BRIEF_LAST_RUN_KEY, today);
+      const { brief, delivered } = await generateDailyBrief();
+      console.log(`[VANTAGE] daily brief ${brief.id} generated; delivery:`, delivered);
+    } catch (err) {
+      console.error('[VANTAGE] daily brief failed:', err);
+    } finally {
+      briefing = false;
+    }
+  };
+
+  const briefTimer = setInterval(briefTick, 60_000);
+  if (typeof briefTimer.unref === 'function') briefTimer.unref();
+  console.log(`[VANTAGE] daily brief scheduled for ${briefAt} local time`);
 }
