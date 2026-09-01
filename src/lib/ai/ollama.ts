@@ -59,5 +59,65 @@ export function createOllamaProvider(): LLMProvider {
       if (data.error) throw new Error(`Ollama error: ${data.error}`);
       return data.message?.content?.trim() ?? '';
     },
+
+    async *generateStream({ system, prompt, temperature, maxTokens }: GenerateOptions) {
+      let res: Response;
+      try {
+        res = await fetch(`${base}/api/chat`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            stream: true,
+            messages: [
+              { role: 'system', content: system },
+              { role: 'user', content: prompt },
+            ],
+            options: {
+              temperature: temperature ?? 0.4,
+              ...(maxTokens ? { num_predict: maxTokens } : {}),
+            },
+          }),
+        });
+      } catch (err) {
+        throw new ProviderUnconfiguredError(
+          'ollama',
+          `cannot reach Ollama at ${base} (${(err as Error).message}). Start it with \`ollama serve\` or set OLLAMA_URL.`
+        );
+      }
+
+      if (res.status === 404) {
+        throw new ProviderUnconfiguredError(
+          'ollama',
+          `model "${model}" is not pulled. Run \`ollama pull ${model}\` or set OLLAMA_MODEL.`
+        );
+      }
+      if (!res.ok || !res.body) {
+        throw new Error(`Ollama returned ${res.status}: ${await res.text().catch(() => '')}`);
+      }
+
+      // Ollama streams newline-delimited JSON; a chunk may split a line.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line) as OllamaChatResponse;
+            if (parsed.error) throw new Error(`Ollama error: ${parsed.error}`);
+            const piece = parsed.message?.content;
+            if (piece) yield piece;
+          } catch {
+            /* skip a malformed line rather than abort the stream */
+          }
+        }
+      }
+    },
   };
 }

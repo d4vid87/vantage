@@ -54,5 +54,22 @@ export function createGeminiProvider(): LLMProvider {
       const result = await generative.generateContent(prompt);
       return result.response.text().trim();
     },
+
+    async *generateStream({ system, prompt, temperature, maxTokens }: GenerateOptions) {
+      const client = new GoogleGenerativeAI(rotateKey(keys));
+      const generative = client.getGenerativeModel({
+        model,
+        systemInstruction: system,
+        generationConfig: {
+          temperature: temperature ?? 0.4,
+          ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
+        },
+      });
+      const result = await generative.generateContentStream(prompt);
+      for await (const chunk of result.stream) {
+        const piece = chunk.text();
+        if (piece) yield piece;
+      }
+    },
   };
 }

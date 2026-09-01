@@ -6,7 +6,8 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
-import { getProvider, type LLMProvider } from './ai/provider';
+import { getProvider, streamFrom, type LLMProvider } from './ai/provider';
+import { ACTIONS_PROMPT } from './ai/actions';
 
 /* ─────────────────────────────────────────────────────────────
    Data Interfaces — Zero `any` types
@@ -244,7 +245,23 @@ You are answering an analyst conversationally inside the Vantage HUD. Keep
 answers tight and scannable. Ground every claim in the OPERATIONAL DATA block
 and cite the specific record (event id, CVE, magnitude, source) you used. If
 the answer is not supported by the data on screen, say so and name which layer
-the analyst should enable to get it.`;
+the analyst should enable to get it.
+
+${ACTIONS_PROMPT}`;
+
+function copilotPrompt(context: IntelligenceContext, history: ChatTurn[]): string {
+  const transcript = history
+    .map((t) => `${t.role === 'user' ? 'ANALYST' : 'VANTAGE'}: ${t.content}`)
+    .join('\n\n');
+
+  return `## CURRENT OPERATIONAL DATA
+${serializeContext(context)}
+
+## CONVERSATION
+${transcript}
+
+VANTAGE:`;
+}
 
 export async function copilotAnswer(
   context: IntelligenceContext,
@@ -252,17 +269,23 @@ export async function copilotAnswer(
   provider?: LLMProvider
 ): Promise<string> {
   const llm = provider ?? (await getProvider());
-  const transcript = history
-    .map((t) => `${t.role === 'user' ? 'ANALYST' : 'VANTAGE'}: ${t.content}`)
-    .join('\n\n');
+  return llm.generate({
+    system: COPILOT_SYSTEM,
+    prompt: copilotPrompt(context, history),
+    maxTokens: 2048,
+  });
+}
 
-  const prompt = `## CURRENT OPERATIONAL DATA
-${serializeContext(context)}
-
-## CONVERSATION
-${transcript}
-
-VANTAGE:`;
-
-  return llm.generate({ system: COPILOT_SYSTEM, prompt, maxTokens: 2048 });
+/** Incremental copilot generation, for the streaming chat endpoint. */
+export async function* copilotStream(
+  context: IntelligenceContext,
+  history: ChatTurn[],
+  provider?: LLMProvider
+): AsyncIterable<string> {
+  const llm = provider ?? (await getProvider());
+  yield* streamFrom(llm, {
+    system: COPILOT_SYSTEM,
+    prompt: copilotPrompt(context, history),
+    maxTokens: 2048,
+  });
 }

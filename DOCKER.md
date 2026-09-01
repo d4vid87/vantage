@@ -250,6 +250,48 @@ Every attempt, permitted or blocked, is recorded:
 curl -s localhost:3000/api/recon-audit | jq
 ```
 
+### Authentication
+
+Off by default. Set a password and the UI plus every sensitive route requires
+a session cookie:
+
+```env
+VANTAGE_AUTH_PASSWORD=a-long-random-passphrase
+```
+
+Rotating the password invalidates every existing session. Public feed routes
+(`/api/flights`, `/api/earthquakes`, …) stay open by design — they serve only
+upstream public data, and the in-process scheduler reads them over loopback.
+To gate those as well, put Authelia / Cloudflare Access / Tailscale in front.
+
+### Alert scheduler
+
+Vantage evaluates watch rules on its own timer, so alerts fire with no browser
+open:
+
+```env
+VANTAGE_ALERT_INTERVAL_MS=120000   # default 2 min, floor 5s
+VANTAGE_SCHEDULER=                 # set to "off" to disable
+```
+
+With the scheduler off, drive `POST /api/alerts/tick` from an external cron
+instead (send `x-vantage-tick-key` if `VANTAGE_TICK_SECRET` is set). With no
+body, the endpoint collects the snapshot server-side.
+
+### Backups
+
+```bash
+# Host install
+node scripts/backup.mjs                       # → $VANTAGE_DATA_DIR/backups/
+
+# Docker — online backup inside the container, then copy it out
+docker compose exec vantage node scripts/backup.mjs /data/backups/manual.db
+docker cp vantage:/data/backups/manual.db ./vantage-backup.db
+```
+
+Restore by stopping the container and putting the file back as
+`/data/vantage.db`.
+
 ### Telemetry
 
 There is none. Vantage makes no outbound analytics call unless you point

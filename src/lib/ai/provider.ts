@@ -27,6 +27,24 @@ export interface LLMProvider {
   /** Human-readable model identifier, for display in the HUD. */
   readonly model: string;
   generate(opts: GenerateOptions): Promise<string>;
+  /**
+   * Incremental generation. Adapters that cannot stream fall back to yielding
+   * the whole `generate()` result as a single chunk, so callers only ever
+   * need this one path.
+   */
+  generateStream?(opts: GenerateOptions): AsyncIterable<string>;
+}
+
+/** Stream from a provider, falling back to a single chunk when unsupported. */
+export async function* streamFrom(
+  provider: LLMProvider,
+  opts: GenerateOptions
+): AsyncIterable<string> {
+  if (provider.generateStream) {
+    yield* provider.generateStream(opts);
+    return;
+  }
+  yield await provider.generate(opts);
 }
 
 /** Thrown when the selected provider has no usable configuration. */

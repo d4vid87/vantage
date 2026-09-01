@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createRule, deleteRule, listRules, setRuleEnabled } from '@/lib/alerts/store';
 import { channelStatus } from '@/lib/alerts/dispatch';
 import { ALL_CHANNELS, type Channel, type WatchKind } from '@/lib/alerts/types';
+import { validateHost } from '@/lib/ssrf-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,16 +55,26 @@ export async function POST(request: NextRequest) {
   // server, so constrain it to http(s) rather than accepting any scheme.
   let webhookUrl: string | undefined;
   if (body.webhookUrl) {
+    let parsed: URL;
     try {
-      const parsed = new URL(body.webhookUrl);
+      parsed = new URL(body.webhookUrl);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('scheme');
-      webhookUrl = parsed.toString();
     } catch {
       return NextResponse.json(
         { error: 'webhookUrl must be a valid http(s) URL.' },
         { status: 400 }
       );
     }
+    // Reject internal targets at create time so an SSRF rule never persists.
+    // Dispatch re-checks via safeFetch, since DNS can change after creation.
+    const guard = await validateHost(parsed.hostname);
+    if (!guard.ok) {
+      return NextResponse.json(
+        { error: `webhookUrl target is not allowed: ${guard.reason}` },
+        { status: 400 }
+      );
+    }
+    webhookUrl = parsed.toString();
   }
 
   const rule = createRule({

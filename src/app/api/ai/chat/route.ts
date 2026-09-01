@@ -7,7 +7,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { copilotAnswer, type ChatTurn, type IntelligenceContext } from '@/lib/ai-engine';
+import { copilotStream, type ChatTurn, type IntelligenceContext } from '@/lib/ai-engine';
+import { parseActions } from '@/lib/ai/actions';
 import {
   getProvider,
   providerStatus,
@@ -48,6 +49,8 @@ const MAX_MESSAGE_CHARS = 4000;
 interface ChatBody {
   messages?: ChatTurn[];
   context?: IntelligenceContext;
+  /** Set false for a single JSON response instead of a token stream. */
+  stream?: boolean;
 }
 
 export async function GET() {
@@ -100,12 +103,66 @@ export async function POST(request: NextRequest) {
 
   try {
     const provider = await getProvider();
-    const answer = await copilotAnswer(context, history, provider);
-    return NextResponse.json({
-      answer,
-      provider: provider.name,
-      model: provider.model,
-      generatedAt: new Date().toISOString(),
+
+    // Resolve the first chunk before committing to a 200, so a provider that
+    // is down still surfaces as a clean 503 rather than an empty stream.
+    const iterator = copilotStream(context, history, provider)[Symbol.asyncIterator]();
+    const first = await iterator.next();
+
+    if (body.stream === false) {
+      let full = first.done ? '' : first.value;
+      for (let step = await iterator.next(); !step.done; step = await iterator.next()) {
+        full += step.value;
+      }
+      const { text, actions } = parseActions(full);
+      return NextResponse.json({
+        answer: text,
+        actions,
+        provider: provider.name,
+        model: provider.model,
+        generatedAt: new Date().toISOString(),
+      });
+    }
+
+    // NDJSON frames: {delta} while generating, then a final {done} carrying
+    // the cleaned prose and any validated actions.
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
+        let full = '';
+        try {
+          if (!first.done) {
+            full += first.value;
+            send({ delta: first.value });
+          }
+          for (let step = await iterator.next(); !step.done; step = await iterator.next()) {
+            full += step.value;
+            send({ delta: step.value });
+          }
+          const { text, actions } = parseActions(full);
+          send({
+            done: true,
+            answer: text,
+            actions,
+            provider: provider.name,
+            model: provider.model,
+            generatedAt: new Date().toISOString(),
+          });
+        } catch (err) {
+          send({ error: err instanceof Error ? err.message : 'stream failed' });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new NextResponse(stream, {
+      headers: {
+        'Content-Type': 'application/x-ndjson; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'X-Accel-Buffering': 'no',
+      },
     });
   } catch (err) {
     if (err instanceof ProviderUnconfiguredError) {

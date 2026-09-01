@@ -2,6 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { channelStatus, dispatchAlert } from './dispatch';
 import type { Alert } from './types';
 
+// The webhook channel resolves its target through the SSRF guard. Stub DNS so
+// the fake test hostnames resolve to a public address; IP literals skip DNS
+// entirely, so the blocked-range assertions below still exercise the real
+// guard logic.
+vi.mock('node:dns/promises', () => ({
+  lookup: vi.fn(async () => [{ address: '93.184.216.34', family: 4 }]),
+}));
+
 const alert: Alert = {
   id: 'alert_1',
   ruleId: 'rule_1',
@@ -110,6 +118,24 @@ describe('dispatchAlert', () => {
 
     expect(results.discord).toMatch(/500/);
     expect(results.webhook).toBe('ok');
+  });
+
+  it('refuses an internal webhook target without making a request (SSRF guard)', async () => {
+    const calls = stubFetch();
+    const { results } = await dispatchAlert(alert, ['webhook'], {
+      webhookUrl: 'http://169.254.169.254/latest/meta-data/',
+    });
+    expect(results.webhook).toMatch(/blocked target/i);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('refuses a loopback webhook target', async () => {
+    const calls = stubFetch();
+    const { results } = await dispatchAlert(alert, ['webhook'], {
+      webhookUrl: 'http://127.0.0.1:8080/inbox',
+    });
+    expect(results.webhook).toMatch(/blocked target/i);
+    expect(calls).toHaveLength(0);
   });
 
   it('surfaces a non-2xx webhook response as an error', async () => {

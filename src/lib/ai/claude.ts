@@ -56,5 +56,55 @@ export function createClaudeProvider(): LLMProvider {
         .join('')
         .trim();
     },
+
+    async *generateStream({ system, prompt, temperature, maxTokens }: GenerateOptions) {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': API_VERSION,
+        },
+        body: JSON.stringify({
+          model,
+          system,
+          max_tokens: maxTokens ?? 4096,
+          temperature: temperature ?? 0.4,
+          stream: true,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+
+      if (!res.ok || !res.body) {
+        const detail = await res.text().catch(() => '');
+        throw new Error(`Claude API ${res.status}: ${detail.slice(0, 300)}`);
+      }
+
+      // Server-sent events: accumulate and emit only text deltas.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          const raw = line.slice(5).trim();
+          if (!raw || raw === '[DONE]') continue;
+          try {
+            const evt = JSON.parse(raw) as {
+              type?: string;
+              delta?: { type?: string; text?: string };
+            };
+            if (evt.type === 'content_block_delta' && evt.delta?.text) yield evt.delta.text;
+          } catch {
+            /* ignore keepalives and partial frames */
+          }
+        }
+      }
+    },
   };
 }

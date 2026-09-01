@@ -3,24 +3,20 @@
  *  VANTAGE — Watch evaluator tick
  *  POST /api/alerts/tick
  *
- *  The client (or a cron / systemd timer) hands over the current layer
- *  snapshot; every enabled rule is evaluated against it, new matches are
- *  persisted as alerts and fanned out to the rule's delivery channels.
+ *  Evaluates every enabled rule and dispatches new matches. Vantage runs its
+ *  own scheduler in-process (see `instrumentation.ts`), so this route exists
+ *  for external cron / manual runs and for handing in a snapshot the server
+ *  cannot fetch itself.
  *
- *  Alerts are written to SQLite *before* dispatch, so a delivery outage
- *  loses a notification but never the alert itself.
+ *  With no body, the evaluator collects the snapshot from the feed routes.
  * ═══════════════════════════════════════════════════════════════
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { evaluateRule, severityFor, type FeedSnapshot } from '@/lib/alerts/evaluate';
-import { claimNewKeys, listRules, markFired, recordAlert, recordDelivery } from '@/lib/alerts/store';
-import { dispatchAlert } from '@/lib/alerts/dispatch';
+import type { FeedSnapshot } from '@/lib/alerts/evaluate';
+import { collectSnapshot, runEvaluation } from '@/lib/alerts/run';
 
 export const dynamic = 'force-dynamic';
-
-/** Cap per rule per tick so one wide geofence can't spam every channel. */
-const MAX_ALERTS_PER_RULE = 10;
 
 export async function POST(request: NextRequest) {
   // Optional shared secret so an exposed instance can't have its evaluator
@@ -30,43 +26,22 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
   }
 
-  let snapshot: FeedSnapshot;
+  let snapshot: FeedSnapshot | null = null;
   try {
     const body = (await request.json()) as { snapshot?: FeedSnapshot };
-    snapshot = body.snapshot ?? {};
+    if (body.snapshot) snapshot = body.snapshot;
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
+    // No body / invalid JSON — fall through to server-side collection.
   }
 
-  const fired: Array<{ ruleId: string; alertId: string; delivered: Record<string, string> }> = [];
+  const resolved = snapshot ?? (await collectSnapshot());
+  const fired = await runEvaluation(resolved);
 
-  for (const rule of listRules()) {
-    const matches = evaluateRule(rule, snapshot);
-    if (matches.length === 0) continue;
-
-    const freshKeys = new Set(claimNewKeys(rule.id, matches.map((m) => m.key)));
-    const fresh = matches.filter((m) => freshKeys.has(m.key)).slice(0, MAX_ALERTS_PER_RULE);
-    if (fresh.length === 0) continue;
-
-    for (const match of fresh) {
-      const alert = recordAlert({
-        ruleId: rule.id,
-        title: `${rule.name} — ${match.label}`,
-        body: `Watch "${rule.name}" matched a new ${match.layer} entity: ${match.label}.`,
-        severity: severityFor(match),
-        lat: match.lat,
-        lng: match.lng,
-        payload: match.record,
-      });
-
-      const { results } = await dispatchAlert(alert, rule.channels, {
-        webhookUrl: rule.webhookUrl,
-      });
-      recordDelivery(alert.id, results);
-      fired.push({ ruleId: rule.id, alertId: alert.id, delivered: results });
-    }
-    markFired(rule.id);
-  }
-
-  return NextResponse.json({ evaluated: true, fired, count: fired.length });
+  return NextResponse.json({
+    evaluated: true,
+    source: snapshot ? 'client' : 'server',
+    layers: Object.keys(resolved),
+    fired,
+    count: fired.length,
+  });
 }

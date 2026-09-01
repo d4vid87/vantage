@@ -651,6 +651,35 @@ export const API_GROUPS: ApiGroup[] = [
     ],
   },
   {
+    id: 'auth',
+    title: 'Authentication',
+    blurb:
+      'Single shared password, opt-in via `VANTAGE_AUTH_PASSWORD`. When unset, no route is gated and these endpoints report auth as disabled. Sessions are HMAC-signed cookies.',
+    endpoints: [
+      {
+        path: '/api/auth/login',
+        method: 'GET',
+        summary: 'Reports whether auth is enabled and whether this session is valid.',
+        returns: ['authEnabled', 'authenticated'],
+      },
+      {
+        path: '/api/auth/login',
+        method: 'POST',
+        summary: 'Exchanges the password for a session cookie.',
+        returns: ['ok', 'error', 'code'],
+        env: ['VANTAGE_AUTH_PASSWORD', 'VANTAGE_SESSION_TTL_SECONDS'],
+        notes:
+          'Body: `{ password }`. 401 on a bad password, 429 above 10 attempts per minute per IP, 400 when auth is not configured. Comparison is constant-time.',
+      },
+      {
+        path: '/api/auth/logout',
+        method: 'POST',
+        summary: 'Clears the session cookie.',
+        returns: ['ok'],
+      },
+    ],
+  },
+  {
     id: 'copilot',
     title: 'Analyst Copilot',
     blurb:
@@ -663,7 +692,7 @@ export const API_GROUPS: ApiGroup[] = [
         returns: ['answer', 'provider', 'model', 'generatedAt'],
         env: ['VANTAGE_AI_PROVIDER', 'OLLAMA_URL', 'ANTHROPIC_API_KEY', 'GEMINI_API_KEY'],
         notes:
-          'Body: `{ messages: [{role, content}], context }`. History is capped at 20 turns. Returns 503 with code `NO_AI_PROVIDER` when the selected provider is unconfigured, 429 above 20 turns per minute per IP.',
+          'Body: `{ messages: [{role, content}], context, stream? }`. Streams NDJSON `{delta}` frames then a final `{done, answer, actions}`; pass `stream: false` for a single JSON response. `actions` are validated view-control proposals (toggleLayer / flyTo / highlight) that only run when the operator clicks them. History is capped at 20 turns. 503 `NO_AI_PROVIDER` when unconfigured, 429 above 20 turns per minute per IP.',
       },
       {
         path: '/api/ai/chat',
@@ -691,7 +720,7 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Creates a watch rule.',
         returns: ['rule'],
         notes:
-          'Body: `{ name, kind: aoi|entity|threshold, spec, channels[], webhookUrl? }`. `webhookUrl` must be http(s).',
+          'Body: `{ name, kind: aoi|entity|threshold, spec, channels[], webhookUrl? }`. `webhookUrl` must be http(s) and is resolved against the SSRF guard — internal, loopback and link-local targets are rejected at 400.',
       },
       {
         path: '/api/watchlist',
@@ -710,7 +739,8 @@ export const API_GROUPS: ApiGroup[] = [
       {
         path: '/api/alerts/tick',
         method: 'POST',
-        summary: 'Evaluates every enabled rule against a layer snapshot and dispatches new matches.',
+        summary:
+          'Evaluates every enabled rule and dispatches new matches. With no body the server collects the snapshot from its own feed routes.',
         returns: ['evaluated', 'fired', 'count'],
         env: [
           'VANTAGE_TICK_SECRET',
@@ -720,7 +750,7 @@ export const API_GROUPS: ApiGroup[] = [
           'VANTAGE_WEBHOOK_URL',
         ],
         notes:
-          'Body: `{ snapshot: { layer: records[] } }`. Edge-triggered — a record alerts once per rule. Set `VANTAGE_TICK_SECRET` and send it as `x-vantage-tick-key` on an exposed instance.',
+          'Optional body `{ snapshot: { layer: records[] } }`; omit it to have the server fetch the feeds itself. Edge-triggered — a record alerts once per rule. Vantage also runs this on its own timer (`VANTAGE_ALERT_INTERVAL_MS`), so alerts fire with no browser open. Set `VANTAGE_TICK_SECRET` and send it as `x-vantage-tick-key` on an exposed instance.',
       },
     ],
   },

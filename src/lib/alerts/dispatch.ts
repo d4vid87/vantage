@@ -9,6 +9,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
+import { safeFetch } from '../ssrf-guard';
 import type { Alert, Channel } from './types';
 
 const SEVERITY_COLORS: Record<string, number> = {
@@ -115,7 +116,10 @@ async function sendWebhook(alert: Alert, overrideUrl?: string): Promise<void> {
   const url = (overrideUrl || process.env.VANTAGE_WEBHOOK_URL || '').trim();
   if (!url) throw new Error('no webhook URL configured for this rule');
 
-  const res = await fetch(url, {
+  // The per-rule URL is operator input that the *server* dials, so it is an
+  // SSRF vector: safeFetch resolves the host and refuses loopback, RFC1918,
+  // link-local (cloud metadata) and other reserved ranges, on redirects too.
+  const res = await safeFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'User-Agent': 'Vantage' },
     body: JSON.stringify(alert),

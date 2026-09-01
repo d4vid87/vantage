@@ -23,6 +23,7 @@ import GlobalStatusBar from '@/components/GlobalStatusBar';
 import LiveAlerts from '@/components/LiveAlerts';
 import WorldRemote from '@/components/WorldRemote';
 import ArcGISPanel from '@/components/ArcGISPanel';
+import type { CopilotAction } from '@/lib/ai/actions';
 const CopilotPanel = dynamic(() => import('@/components/CopilotPanel'));
 const WatchlistPanel = dynamic(() => import('@/components/WatchlistPanel'));
 const InvestigationGraph = dynamic(() => import('@/components/InvestigationGraph'));
@@ -520,6 +521,30 @@ export default function Dashboard() {
 
   // The most recently drawn polygon, offered to the watchlist panel as the
   // geometry for a new geofence.
+  // ── Copilot actions ──
+  // Only ever invoked from an operator click on a proposed action chip; the
+  // model never drives the map on its own. Layer names are validated
+  // server-side against the real activeLayers keys.
+  const runCopilotAction = useCallback((action: CopilotAction) => {
+    switch (action.type) {
+      case 'toggleLayer':
+        setActiveLayers(prev =>
+          action.layer in prev
+            ? { ...prev, [action.layer]: !prev[action.layer as keyof typeof prev] }
+            : prev
+        );
+        break;
+      case 'flyTo':
+        setFlyToLocation({ lat: action.lat, lng: action.lng, zoom: action.zoom, ts: Date.now() });
+        break;
+      case 'highlight':
+        setActiveLayers(prev =>
+          action.layer in prev ? { ...prev, [action.layer]: true } : prev
+        );
+        break;
+    }
+  }, []);
+
   const activeDrawnRing = useMemo(() => {
     for (let i = drawnPolygons.length - 1; i >= 0; i--) {
       const ring = queryRing(drawnPolygons[i]);
@@ -528,29 +553,6 @@ export default function Dashboard() {
     return null;
   }, [drawnPolygons]);
 
-  // ── Server-side watchlist evaluation ──
-  // Hand the current layer snapshot to the evaluator on each data refresh.
-  // Rules live in SQLite, so alerts fire and deliver even though the matching
-  // is triggered from here.
-  const lastTick = useRef(0);
-  useEffect(() => {
-    const now = Date.now();
-    // Never tick more than once a minute, however often layers refresh.
-    if (now - lastTick.current < 60_000) return;
-    lastTick.current = now;
-
-    const snapshot: Record<string, unknown[]> = {};
-    for (const [layer, records] of Object.entries(dataRef.current as Record<string, unknown>)) {
-      if (Array.isArray(records) && records.length) snapshot[layer] = records.slice(0, 500);
-    }
-    if (Object.keys(snapshot).length === 0) return;
-
-    fetch('/api/alerts/tick', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ snapshot }),
-    }).catch(() => { /* evaluator is best-effort; alerts persist server-side */ });
-  }, [dataVersion]);
 
   const toggleWatch = useCallback((id: string) => {
     setWatched(prev => {
@@ -1345,6 +1347,7 @@ export default function Dashboard() {
         open={showCopilot}
         onClose={() => setShowCopilot(false)}
         getContext={buildCopilotContext}
+        onAction={runCopilotAction}
       />
       <WatchlistPanel
         open={showWatchlists}

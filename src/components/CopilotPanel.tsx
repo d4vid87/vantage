@@ -10,7 +10,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bot, Send, X, Loader2, AlertTriangle, Cpu } from 'lucide-react';
+import { Bot, Send, X, Loader2, AlertTriangle, Cpu, Layers, Crosshair, MapPin } from 'lucide-react';
+import type { CopilotAction } from '@/lib/ai/actions';
 
 export interface CopilotContext {
   earthquakes: unknown[];
@@ -23,6 +24,7 @@ export interface CopilotContext {
 interface Turn {
   role: 'user' | 'assistant';
   content: string;
+  actions?: CopilotAction[];
 }
 
 interface Props {
@@ -30,6 +32,21 @@ interface Props {
   onClose: () => void;
   /** Builds the live grounding context at send time, not render time. */
   getContext: () => CopilotContext;
+  /** Runs a copilot-proposed action. Only ever called from a click. */
+  onAction?: (action: CopilotAction) => void;
+}
+
+const ACTION_ICON = {
+  toggleLayer: Layers,
+  flyTo: MapPin,
+  highlight: Crosshair,
+} as const;
+
+function actionLabel(a: CopilotAction): string {
+  if (a.label) return a.label;
+  if (a.type === 'toggleLayer') return `Toggle ${a.layer}`;
+  if (a.type === 'flyTo') return `Fly to ${a.lat.toFixed(2)}, ${a.lng.toFixed(2)}`;
+  return `Highlight ${a.id}`;
 }
 
 const SUGGESTIONS = [
@@ -38,10 +55,11 @@ const SUGGESTIONS = [
   'Which cyber alerts warrant action today?',
 ];
 
-export default function CopilotPanel({ open, onClose, getContext }: Props) {
+export default function CopilotPanel({ open, onClose, getContext, onAction }: Props) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [streaming, setStreaming] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [provider, setProvider] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -56,7 +74,7 @@ export default function CopilotPanel({ open, onClose, getContext }: Props) {
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [turns, busy]);
+  }, [turns, busy, streaming]);
 
   const send = useCallback(
     async (text: string) => {
@@ -67,6 +85,7 @@ export default function CopilotPanel({ open, onClose, getContext }: Props) {
       setTurns(next);
       setInput('');
       setBusy(true);
+      setStreaming('');
       setError(null);
 
       try {
@@ -75,13 +94,69 @@ export default function CopilotPanel({ open, onClose, getContext }: Props) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: next, context: getContext() }),
         });
-        const data = await res.json();
-        if (!res.ok) {
+
+        if (!res.ok || !res.body) {
+          const data = await res.json().catch(() => ({}));
           setError(data.error ?? `Copilot failed (${res.status})`);
           return;
         }
-        if (data.provider) setProvider(data.provider);
-        setTurns([...next, { role: 'assistant', content: data.answer }]);
+
+        // NDJSON: {delta} frames while generating, one {done} frame at the end.
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let shown = '';
+        let finished = false;
+
+        while (!finished) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            let frame: {
+              delta?: string;
+              done?: boolean;
+              answer?: string;
+              actions?: CopilotAction[];
+              provider?: string;
+              error?: string;
+            };
+            try {
+              frame = JSON.parse(line);
+            } catch {
+              continue;
+            }
+
+            if (frame.error) {
+              setError(frame.error);
+              finished = true;
+              break;
+            }
+            if (frame.delta) {
+              shown += frame.delta;
+              setStreaming(shown);
+            }
+            if (frame.done) {
+              if (frame.provider) setProvider(frame.provider);
+              setTurns([
+                ...next,
+                { role: 'assistant', content: frame.answer ?? shown, actions: frame.actions ?? [] },
+              ]);
+              setStreaming('');
+              finished = true;
+            }
+          }
+        }
+
+        // Stream cut off before the final frame — keep what was rendered.
+        if (!finished && shown) {
+          setTurns([...next, { role: 'assistant', content: shown }]);
+          setStreaming('');
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Copilot request failed.');
       } finally {
@@ -150,19 +225,48 @@ export default function CopilotPanel({ open, onClose, getContext }: Props) {
             )}
 
             {turns.map((t, i) => (
-              <div
-                key={i}
-                className="whitespace-pre-wrap rounded px-2 py-1.5"
-                style={{
-                  background: t.role === 'user' ? 'var(--bg-tertiary)' : 'transparent',
-                  borderLeft: t.role === 'assistant' ? '2px solid var(--cyan-primary)' : undefined,
-                }}
-              >
-                {t.content}
+              <div key={i}>
+                <div
+                  className="whitespace-pre-wrap rounded px-2 py-1.5"
+                  style={{
+                    background: t.role === 'user' ? 'var(--bg-tertiary)' : 'transparent',
+                    borderLeft: t.role === 'assistant' ? '2px solid var(--cyan-primary)' : undefined,
+                  }}
+                >
+                  {t.content}
+                </div>
+
+                {/* Proposed actions never run on their own — one click each. */}
+                {t.actions && t.actions.length > 0 && onAction && (
+                  <div className="mt-1 flex flex-wrap gap-1 pl-2">
+                    {t.actions.map((a, j) => {
+                      const Icon = ACTION_ICON[a.type];
+                      return (
+                        <button
+                          key={j}
+                          onClick={() => onAction(a)}
+                          className="flex items-center gap-1 rounded px-1.5 py-1 text-[10px] font-bold"
+                          style={{ background: 'var(--bg-tertiary)', color: 'var(--cyan-primary)' }}
+                        >
+                          <Icon size={9} /> {actionLabel(a)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             ))}
 
-            {busy && (
+            {streaming && (
+              <div
+                className="whitespace-pre-wrap rounded px-2 py-1.5"
+                style={{ borderLeft: '2px solid var(--cyan-primary)' }}
+              >
+                {streaming}
+              </div>
+            )}
+
+            {busy && !streaming && (
               <div className="flex items-center gap-2 opacity-70">
                 <Loader2 size={12} className="animate-spin" /> Analysing…
               </div>

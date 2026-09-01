@@ -25,10 +25,11 @@ Vantage is a fork of [`simplifaisoul/osiris`](https://github.com/simplifaisoul/o
 |---|---|---|
 | **AI brain** | Gemini, hardcoded | **Pluggable** — Ollama (local, default), Claude, or Gemini |
 | **Analyst copilot** | — | **Chat grounded in the live map** — ask about what is on screen, get cited answers |
-| **Alerts** | In-tab toasts only | **Persistent watchlists** → Discord, ntfy push, email, webhook |
+| **Alerts** | In-tab toasts only | **Persistent watchlists** → Discord, ntfy push, email, webhook, evaluated by a **server-side scheduler** (no browser needed) |
 | **Investigations** | — | **Link-analysis graph** saved server-side, exported as Markdown / PDF dossiers |
 | **State** | Stateless | **SQLite** — one file holds watchlists, alerts, investigations, audit trail |
 | **Telemetry** | Hardcoded phone-home | **None by default**, opt-in to a server you control |
+| **Auth** | None | **Optional single-password gate** on the UI and every sensitive route |
 | **RECON toolkit** | On by default | **Off by default**, gated and fully audited |
 
 Everything else — the 16 intelligence layers, ~70 API routes, WebGL rendering — comes from the upstream project and is carried forward intact.
@@ -63,6 +64,8 @@ Every layer is rendered through MapLibre GL on the GPU, loaded on demand, and cl
 
 A chat docked into the HUD that receives the **current layer data** with every turn, so answers cite real records instead of the model's priors. Ask *"what's the most significant development on screen?"* or *"correlate the seismic and news feeds"* and it works from what is actually loaded — and tells you which layer to enable when the data isn't there.
 
+Replies **stream token by token**, and the copilot can propose **view actions** — toggle a layer, fly to a cited event, highlight an entity. Actions render as chips and only run when you click one; the model never drives the map on its own, and every proposed layer name is validated server-side against the real layer keys.
+
 The brain is pluggable:
 
 ```env
@@ -81,7 +84,7 @@ Three kinds of watch, all persisted server-side so they keep firing whether or n
 - **Entity** — watch an ICAO24, MMSI, wallet address, Telegram channel or sanctioned name
 - **Threshold** — *any M5+ quake*, optionally constrained to a bounding box
 
-Matching is **edge-triggered**: a record alerts once per rule, however often the evaluator runs. Delivery fans out to any combination of four channels, each failing independently — a dead Discord webhook never stops the email:
+Rules are evaluated by an **in-process scheduler** (`instrumentation.ts`) that fetches the feeds itself every `VANTAGE_ALERT_INTERVAL_MS` — so alerts fire with no browser tab open, which is the entire point of persisting them server-side. Matching is **edge-triggered**: a record alerts once per rule, however often the evaluator runs. Delivery fans out to any combination of four channels, each failing independently — a dead Discord webhook never stops the email:
 
 ```env
 VANTAGE_DISCORD_WEBHOOK=https://discord.com/api/webhooks/...
@@ -147,7 +150,8 @@ ollama pull llama3.1
 | Store | SQLite (better-sqlite3, WAL) |
 | AI | Ollama / Anthropic Messages API / Gemini |
 | Alerts | Discord webhooks, ntfy, nodemailer, generic webhook |
-| Tests | Vitest — 555 passing |
+| Auth | HMAC-signed session cookies (Web Crypto) |
+| Tests | Vitest — 580 passing |
 
 ---
 
@@ -155,13 +159,15 @@ ollama pull llama3.1
 
 Vantage is built for **defensive** situational awareness and **authorized** security work.
 
+- **Optional password gate.** Set `VANTAGE_AUTH_PASSWORD` and the UI plus every sensitive route (`/api/investigations`, `/api/alerts`, `/api/watchlist`, `/api/scanner`, `/api/recon-audit`, `/api/report`, `/api/ai`, `/api/osint`) require a session. Sessions are HMAC-signed cookies; rotating the password invalidates them all. Public feed routes stay open — they carry only upstream public data and the scheduler reads them over loopback. Put a reverse proxy in front to gate those too.
 - **RECON is off by default.** Scanner routes return `503` until `VANTAGE_RECON_ENABLED=1`. Read [AUTHORIZED_USE.md](AUTHORIZED_USE.md) before you flip it.
+- **Outbound webhooks are SSRF-guarded.** A watch rule's webhook URL is a target the *server* dials, so it is resolved against the same guard at both create time and dispatch time — internal, loopback and cloud-metadata addresses are refused.
 - **Every scan is audited** — tool, target, actor IP, outcome, timestamp — readable at `GET /api/recon-audit`.
 - **SSRF-guarded.** Loopback, RFC1918, CGNAT, link-local (including cloud metadata), multicast and reserved IPv6 are refused, and hostnames are resolved before the decision so a DNS record pointing at a reserved range is blocked too.
 - **No telemetry.** Vantage makes no outbound analytics call unless you set `VANTAGE_ANALYTICS_URL` to a server you control.
 - **Dangerous scan types are absent** — no 65k-port sweeps, banner grabbing, or traceroute.
 
-Vantage assumes a single trusted operator and has no user model. Put it behind authentication before exposing it, and set `VANTAGE_TICK_SECRET`.
+Vantage assumes a single trusted operator and has no multi-user model. Before exposing it, set `VANTAGE_AUTH_PASSWORD` and `VANTAGE_TICK_SECRET`.
 
 ---
 

@@ -40,8 +40,9 @@ scanner/
 # Data files
 threatfox.json
 
-# Dev scripts (one-time migration helpers)
-scripts/
+# Dev scripts (one-time migration helpers) — but ship the maintained ones
+scripts/*
+!scripts/backup.mjs
 
 # AI agent config files
 CLAUDE.md
