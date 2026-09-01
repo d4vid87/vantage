@@ -45,11 +45,24 @@ Everything else — the 16 intelligence layers, ~70 API routes, WebGL rendering 
 | **CCTV** | 17,000+ public cameras | TfL, WSDOT, Caltrans, ODOT, MDOT, HK Transport, Taiwan THB, NZTA + more |
 | **Seismic** | Real-time M2.5+ | USGS |
 | **Fires** | Active hotspots | NASA FIRMS |
-| **Weather** | Severe events, air quality | NASA EONET |
+| **Weather** | Severe events | NASA EONET |
+| **Air quality** | PM2.5 across 116 cities | Open-Meteo (keyless), OpenAQ |
+| **Radiation** | Citizen-science dose readings | Safecast (CC0) |
+| **Volcanoes** | Weekly activity report | Smithsonian GVP / USGS |
+| **Disease** | Outbreak alerts by country | WHO Disease Outbreak News |
+| **Power** | US outages by county | DOE / Oak Ridge ODIN |
+| **Balloons** | Radiosondes in flight | SondeHub |
 | **Space** | Solar weather, orbital objects | NOAA SWPC, Celestrak, N2YO |
-| **News** | 25+ live broadcasters, geocoded events | RSS, GDELT |
-| **Cyber** | CVEs, malware, attack origins | NVD, Cloudflare Radar |
-| **Conflict** | 13 zones, frontline geometry | Static OSINT + live incident joins |
+| **News** | 33 RSS feeds across wire/regional/OSINT tiers, 25 live broadcasters, 4 Telegram channels | BBC, Al Jazeera, Reuters-class desks, Kyiv Independent, Bellingcat, ReliefWeb + more |
+| **Cyber** | CVEs, malware, attack origins | NVD, CISA KEV, Cloudflare Radar |
+| **Ransomware** | Victim claims by group and country | ransomware.live |
+| **Tor** | Exit-node distribution | Onionoo |
+| **Internet** | Macroscopic outages and shutdowns | IODA (keyless) + Cloudflare Radar |
+| **GPS** | GNSS interference and jamming | gpsjam.org |
+| **Advisories** | State Dept levels 1-4 choropleth | US Department of State |
+| **Conflict** | 13 zones, Ukraine frontline control | DeepStateMap + live incident joins |
+| **Conflict events** | Battles, protests, violence (optional key) | ACLED |
+| **Prediction markets** | Geopolitical odds as early warning | Polymarket |
 | **Crypto** | BTC / ETH / SOL tracing, OFAC screening | mempool.space, Blockscout, Solana RPC |
 | **Sanctions** | Persons, orgs, vessels, aircraft | OpenSanctions (OFAC SDN mirror) |
 | **Telegram** | Geoparsed public-channel posts | `t.me/s/<channel>` web preview |
@@ -58,7 +71,7 @@ Every layer is rendered through MapLibre GL on the GPU, loaded on demand, and cl
 
 ---
 
-## The three additions
+## The differentiators
 
 ### 1. AI analyst copilot
 
@@ -168,6 +181,52 @@ Vantage is built for **defensive** situational awareness and **authorized** secu
 - **Dangerous scan types are absent** — no 65k-port sweeps, banner grabbing, or traceroute.
 
 Vantage assumes a single trusted operator and has no multi-user model. Before exposing it, set `VANTAGE_AUTH_PASSWORD` and `VANTAGE_TICK_SECRET`.
+
+---
+
+## Scheduled intelligence brief
+
+Set a time and Vantage writes itself a daily read-out of the live picture and
+pushes it to your alert channels — no tab open, no cloud round-trip:
+
+```bash
+VANTAGE_DAILY_BRIEF=07:00     # local time; unset disables it
+```
+
+The brief is written by whichever `VANTAGE_AI_PROVIDER` is configured, so with
+the default Ollama the operational picture never leaves the machine. Past briefs
+are stored in SQLite and readable from the BRIEFS panel, or `GET /api/briefs`.
+
+---
+
+## Instability index
+
+A country score built from an editorial baseline plus five live signals — travel
+advisories, internet disruption, ransomware claims, conflict reporting and
+seismicity. Every component is returned with the score, and any source that
+failed to load is named rather than silently counted as zero, because a single
+opaque number is not an assessment.
+
+Rendered as a choropleth and a ranked panel, and fed to the daily brief.
+
+---
+
+## MCP server
+
+Point an AI agent at your own instance instead of somebody's cloud:
+
+```bash
+claude mcp add --transport http vantage http://localhost:3000/api/mcp \
+  --header "Authorization: Bearer $VANTAGE_AUTH_PASSWORD"
+```
+
+Nine tools: `list_layers`, `get_layer_data`, `search_news`, `get_country_risk`,
+`get_alerts`, `list_watch_rules`, `get_investigations`, `get_briefs`, and
+`create_watch_rule`. Everything but the last is read-only; `create_watch_rule`
+writes and validates its webhook target through the same SSRF guard as the HTTP
+route. With `VANTAGE_AUTH_PASSWORD` set, that password is the bearer token and
+the endpoint answers `401` rather than redirecting — a programmatic client
+cannot follow a login page.
 
 ---
 
