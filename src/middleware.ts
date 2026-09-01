@@ -30,6 +30,9 @@ function isPublicPath(path: string): boolean {
     path === '/login' ||
     path.startsWith('/api/auth/') ||
     path === '/api/health' ||
+    // MCP enforces its own bearer check in-route: a programmatic client must
+    // get a 401, never a redirect to the login page.
+    path === '/api/mcp' ||
     path.startsWith('/_next/') ||
     path === '/favicon.ico'
   );
