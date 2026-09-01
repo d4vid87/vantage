@@ -1,7 +1,16 @@
 import { NextResponse } from 'next/server';
+import { isoForName } from '@/lib/countryNames';
+import { scoreCountries, type RiskInputs } from '@/lib/country-risk';
 
-// Country Intelligence Index — composite risk from earthquakes, conflicts, instability
-// Inspired by WorldMonitor's 12-signal risk scoring
+/**
+ * VANTAGE — country instability index.
+ *
+ * Blends an editorial baseline with live signals this instance already
+ * collects: travel advisories, internet disruptions, ransomware claims,
+ * conflict reporting and significant seismicity. Every component is returned
+ * with the score so an analyst can see what drove it.
+ */
+
 const RISK_FACTORS: Record<string, { base: number; tags: string[] }> = {
   UA: { base: 85, tags: ['active_conflict', 'infrastructure_damage'] },
   RU: { base: 72, tags: ['sanctions', 'military_mobilization'] },
@@ -57,47 +66,84 @@ function isExchangeOpen(ex: typeof EXCHANGES[0]): boolean {
   } catch { return false; }
 }
 
+function selfOrigin(): string {
+  return process.env.VANTAGE_SELF_ORIGIN || `http://127.0.0.1:${process.env.PORT || 3000}`;
+}
+
+/**
+ * A failed input degrades its component to zero rather than the whole index.
+ * Plain fetch, not the shared https client — these are loopback http calls,
+ * which that client cannot make.
+ */
+async function local<T>(path: string): Promise<T | null> {
+  try {
+    const res = await fetch(`${selfOrigin()}${path}`, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return null;
+    return (await res.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+function tally(codes: (string | null | undefined)[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const c of codes) if (c) out[c] = (out[c] ?? 0) + 1;
+  return out;
+}
+
 export async function GET() {
   try {
-    const exchangeStatus = EXCHANGES.map(ex => ({
+    const exchangeStatus = EXCHANGES.map((ex) => ({
       name: ex.name, country: ex.country, open: isExchangeOpen(ex),
     }));
 
-    // Enrich risk with live earthquake proximity
-    const quakeRisks: Record<string, number> = {};
-    try {
-      const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_day.geojson', { signal: AbortSignal.timeout(15000),  });
-      if (res.ok) {
-        const data = await res.json();
-        // Count significant quakes per rough region
-        for (const f of data.features || []) {
-          const place = f.properties?.place || '';
-          const mag = f.properties?.mag || 0;
-          // Extract country-ish context from place name
-          for (const [code, _] of Object.entries(RISK_FACTORS)) {
-            if (place.toLowerCase().includes(code.toLowerCase())) {
-              quakeRisks[code] = (quakeRisks[code] || 0) + mag;
-            }
-          }
-        }
-      }
-    } catch (e) { console.warn('[VANTAGE] Suppressed error:', e instanceof Error ? e.message : e); }
+    const [advisoryRes, outageRes, ransomRes, quakeRes, conflictRes] = await Promise.all([
+      local<{ advisories?: { iso: string; level: number }[] }>('/api/travel-advisories'),
+      local<{ outages?: { country?: string }[] }>('/api/radar'),
+      local<{ victims?: { country?: string }[] }>('/api/ransomware'),
+      local<{ earthquakes?: { place?: string; magnitude?: number }[] }>('/api/earthquakes'),
+      local<{ zones?: { country?: string }[] }>('/api/conflicts'),
+    ]);
 
-    const countries = Object.entries(RISK_FACTORS).map(([code, data]) => ({
-      code,
-      risk_score: Math.min(100, data.base + (quakeRisks[code] || 0)),
-      risk_level: data.base >= 80 ? 'CRITICAL' : data.base >= 60 ? 'HIGH' : data.base >= 40 ? 'ELEVATED' : 'LOW',
-      tags: data.tags,
-    })).sort((a, b) => b.risk_score - a.risk_score);
+    const advisories: Record<string, number> = {};
+    for (const a of advisoryRes?.advisories ?? []) advisories[a.iso] = a.level;
+
+    // USGS place strings end in a country or US state name. Resolving the tail
+    // is why this no longer substring-matches ISO codes — that matched "UA"
+    // inside "Guatemala".
+    const seismic: Record<string, number> = {};
+    for (const q of quakeRes?.earthquakes ?? []) {
+      if ((q.magnitude ?? 0) < 4.5) continue;
+      const tail = (q.place ?? '').split(',').pop()?.trim();
+      const iso = isoForName(tail);
+      if (iso) seismic[iso] = (seismic[iso] ?? 0) + 1;
+    }
+
+    const inputs: RiskInputs = {
+      base: RISK_FACTORS,
+      advisories,
+      outages: tally((outageRes?.outages ?? []).map((o) => o.country)),
+      ransomware: tally((ransomRes?.victims ?? []).map((v) => v.country)),
+      conflicts: tally((conflictRes?.zones ?? []).map((z) => z.country)),
+      seismic,
+    };
+
+    const countries = scoreCountries(inputs);
 
     return NextResponse.json({
       countries,
+      // Retained for existing consumers that read the old field names.
       exchanges: exchangeStatus,
-      open_exchanges: exchangeStatus.filter(e => e.open).length,
+      open_exchanges: exchangeStatus.filter((e) => e.open).length,
       total_exchanges: exchangeStatus.length,
+      inputs_available: {
+        advisories: !!advisoryRes, outages: !!outageRes, ransomware: !!ransomRes,
+        seismic: !!quakeRes, conflicts: !!conflictRes,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (err) {
+    console.error('[VANTAGE] country risk failed:', err);
     return NextResponse.json({ countries: [], exchanges: [], error: 'Failed' }, { status: 500 });
   }
 }

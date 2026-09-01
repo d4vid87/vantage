@@ -28,6 +28,7 @@ import type { CopilotAction } from '@/lib/ai/actions';
 const CopilotPanel = dynamic(() => import('@/components/CopilotPanel'));
 const WatchlistPanel = dynamic(() => import('@/components/WatchlistPanel'));
 const BriefPanel = dynamic(() => import('@/components/BriefPanel'));
+const RiskPanel = dynamic(() => import('@/components/RiskPanel'));
 const InvestigationGraph = dynamic(() => import('@/components/InvestigationGraph'));
 const VantageMap = dynamic(() => import('@/components/VantageMap'), { ssr: false });
 const LayerPanel = dynamic(() => import('@/components/LayerPanel'));
@@ -258,6 +259,7 @@ export default function Dashboard() {
   const [showCopilot, setShowCopilot] = useState(false);
   const [showWatchlists, setShowWatchlists] = useState(false);
   const [showBriefs, setShowBriefs] = useState(false);
+  const [showRisk, setShowRisk] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
@@ -315,6 +317,7 @@ export default function Dashboard() {
     volcanoes: false,
     power_outages: false,
     travel_advisories: false,
+    country_risk: false,
     gps_jamming: false,
     acled: false,
     ransomware: false,
@@ -795,6 +798,11 @@ export default function Dashboard() {
     // US power outages
     if ((activeLayers as any).power_outages) {
       loadLayerOnce('power_outages', '/api/power-outages', d => ({ power_outages: d.outages }));
+    }
+
+    // Instability index — same country polygons, coloured by score
+    if ((activeLayers as any).country_risk) {
+      loadLayerOnce('country_risk', '/api/country-risk', d => ({ country_risk: d.countries }));
     }
 
     // Travel advisories — joined onto the shared country polygons
@@ -1428,6 +1436,7 @@ export default function Dashboard() {
         activeRing={activeDrawnRing}
       />
       <BriefPanel open={showBriefs} onClose={() => setShowBriefs(false)} />
+      <RiskPanel open={showRisk} onClose={() => setShowRisk(false)} />
       <InvestigationGraph open={showGraph} onClose={() => setShowGraph(false)} />
 
       {/* ── NEW SIDEBAR (Root Level) ── */}
@@ -1450,6 +1459,13 @@ export default function Dashboard() {
             <Bell className={`w-4 h-4 ${showWatchlists ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">WATCH</span>
+        </div>
+
+        <div className="relative group">
+          <button onClick={() => { setShowRisk(v => !v); setActiveLayers((p: any) => ({ ...p, country_risk: !showRisk })); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showRisk ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Instability index — country risk with its component breakdown" aria-label="Instability index" aria-expanded={showRisk}>
+            <Crosshair className={`w-4 h-4 ${showRisk ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          </button>
+          <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">RISK</span>
         </div>
 
         <div className="relative group">

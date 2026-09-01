@@ -147,8 +147,22 @@ export interface BriefResult {
  * Build, persist and deliver a brief. Persistence happens before dispatch so a
  * failing channel never costs the analysis.
  */
+async function topRisks(): Promise<unknown[]> {
+  try {
+    const origin = process.env.VANTAGE_SELF_ORIGIN || `http://127.0.0.1:${process.env.PORT || 3000}`;
+    const res = await fetch(`${origin}/api/country-risk`, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.countries ?? []).slice(0, 10);
+  } catch {
+    return []; // a missing index must not cost the brief
+  }
+}
+
 export async function generateDailyBrief(): Promise<BriefResult> {
   const snapshot = await collectSnapshot();
+  const risks = await topRisks();
+  if (risks.length) (snapshot as Record<string, unknown[]>).country_risk = risks;
   const counts: Record<string, number> = {};
   for (const [k, v] of Object.entries(snapshot)) counts[k] = Array.isArray(v) ? v.length : 0;
 

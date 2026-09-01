@@ -2141,10 +2141,14 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
     if (al.travel_advisories && data.travel_advisories) {
       for (const a of data.travel_advisories) byIso.set(a.iso, a.color);
     }
+    // The index is the more specific read, so it wins where both are on.
+    if (al.country_risk && data.country_risk) {
+      for (const c of data.country_risk) byIso.set(c.code, c.color);
+    }
     for (const { id, iso } of countryIds.current) {
       m.setFeatureState({ source: 'countries', id }, { color: byIso.get(iso) ?? '' });
     }
-  }, [mapReady, countriesReady, data.travel_advisories, (activeLayers as any).travel_advisories, activeLayers, data]);
+  }, [mapReady, countriesReady, data.travel_advisories, data.country_risk, (activeLayers as any).travel_advisories, (activeLayers as any).country_risk, activeLayers, data]);
 
   useEffect(() => {
     if (!mapReady) return;
