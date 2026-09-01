@@ -35,11 +35,15 @@ export const ALLOWED_LAYERS = [
   'fires',
   'weather',
   'radiation',
+  'air_quality',
+  'balloons',
+  'frontlines',
   'infrastructure',
   'global_incidents',
   'malware',
   'cyber_attacks',
   'gdelt_events',
+  'cf_outages',
 ] as const;
 
 const FENCE = /```vantage-actions\s*([\s\S]*?)```/;

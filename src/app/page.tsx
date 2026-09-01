@@ -16,6 +16,7 @@ import type { LiveDetection } from '@/lib/malware-intel';
 import ScaleBar from '@/components/ScaleBar';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { applySettings, loadSavedSettings } from '@/lib/style-tokens';
+import { mapIodaOutages, mergeOutages } from '@/lib/internet-outages';
 import SharePanel from '@/components/SharePanel';
 import ViewPresets from '@/components/ViewPresets';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
@@ -307,6 +308,7 @@ export default function Dashboard() {
     fires: false,
     weather: false,
     radiation: false,
+    air_quality: false,
     infrastructure: false,
     global_incidents: true,
     day_night: true,
@@ -318,6 +320,7 @@ export default function Dashboard() {
     malware: false,
     cyber_attacks: false,
     gdelt_events: false,
+    frontlines: false,
     cf_outages: false,
     cf_attacks: false,
   });
@@ -764,16 +767,37 @@ export default function Dashboard() {
       loadLayerOnce('gdelt_events', '/api/gdelt-events?limit=600', d => ({ gdelt_events: d.events }));
     }
 
-    // Cloudflare Radar — one request backs both layers
+    // Air quality
+    if ((activeLayers as any).air_quality) {
+      loadLayerOnce('air_quality', '/api/air-quality', d => ({ air_quality: d.stations }));
+    }
+
+    // Ukraine frontline control
+    if ((activeLayers as any).frontlines) {
+      loadLayerOnce('frontlines', '/api/frontlines', d => ({ frontlines: d.frontlines }));
+    }
+
+    // Internet disruptions — IODA is keyless and always queried; Cloudflare
+    // Radar is merged over the top when a token is configured, since its
+    // annotations name a cause where IODA only reports that connectivity fell.
     if ((activeLayers as any).cf_outages || (activeLayers as any).cf_attacks) {
-      loadLayerOnce('cloudflare_radar', '/api/cloudflare-radar', d => ({
-        cf_outages: d.outages ?? [],
-        cf_attack_origins: d.attack_origins ?? [],
-      }));
+      if (!layerFetchedRef.current.has('internet_outages')) {
+        layerFetchedRef.current.add('internet_outages');
+        fetchEndpoint('/api/radar', d => ({ cf_outages: mapIodaOutages(d.outages ?? []) }))
+          .then(ok => {
+            if (!ok) layerFetchedRef.current.delete('internet_outages');
+            if (!capabilities.cloudflare) return;
+            // Runs second so the merge sees the IODA set already in dataRef.
+            return fetchEndpoint('/api/cloudflare-radar', d => ({
+              cf_outages: mergeOutages(d.outages ?? [], dataRef.current.cf_outages ?? []),
+              cf_attack_origins: d.attack_origins ?? [],
+            }));
+          });
+      }
     }
 
 
-  }, [activeLayers]);
+  }, [activeLayers, capabilities]);
 
   // ── LAYER-AWARE POLLING — only poll data for active layers ──
   useEffect(() => {

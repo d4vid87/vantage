@@ -305,7 +305,7 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
       createDot(map, 'dot-fire', isGhost ? phantomPurple : '#E65100', 10);
       createDot(map, 'dot-cctv', cameraColor, 10);
 
-      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks'];
+      const sources = ['flights','military','jets','private-fl','satellites','earthquakes','gdelt','day-night','cctv','fires','weather','infrastructure','maritime','maritime-choke','maritime-ships','live-news','conflict-zones', 'balloons', 'radiation', 'ip-sweep-devices', 'ip-sweep-pulse', 'ip-sweep-connections', 'scan-targets', 'sdk-entities', 'sdk-links', 'malware-nodes', 'malware-new', 'network-mesh', 'cyber-arcs', 'cyber-heads', 'cyber-impacts', 'gdelt-events', 'cf-outages', 'cf-attacks', 'air-quality', 'frontlines'];
       sources.forEach(s => map.addSource(s, { type: 'geojson', data: EMPTY_FC }));
 
       // ── FLIGHT ROUTE VISUALIZATION SOURCES & LAYERS ──
@@ -703,19 +703,42 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
       // Radiation — violet base, threat spectrum for danger/warning
       map.addLayer({ id: 'rad-glow', type: 'circle', source: 'radiation', paint: {
         'circle-radius': ['interpolate',['linear'],['zoom'], 1,10, 5,20, 10,40],
-        'circle-color': ['match', ['get','status'], 'DANGER','#D32F2F', 'WARNING','#E65100', '#7E57C2'],
+        'circle-color': ['get','color'],
         'circle-opacity': 0.12, 'circle-blur': 1,
       }});
       map.addLayer({ id: 'rad-dots', type: 'circle', source: 'radiation', paint: {
         'circle-radius': ['interpolate',['linear'],['zoom'], 1,4, 5,6, 10,8],
-        'circle-color': ['match', ['get','status'], 'DANGER','#D32F2F', 'WARNING','#E65100', '#7E57C2'],
+        'circle-color': ['get','color'],
         'circle-opacity': 0.85,
-        'circle-stroke-width': 1.5, 'circle-stroke-color': ['match', ['get','status'], 'DANGER','#D32F2F', 'WARNING','#E65100', '#7E57C2'], 'circle-stroke-opacity': 0.35,
+        'circle-stroke-width': 1.5, 'circle-stroke-color': ['get','color'], 'circle-stroke-opacity': 0.35,
       }});
       map.addLayer({ id: 'rad-label', type: 'symbol', source: 'radiation', minzoom: 5, layout: {
-        'text-field': ['concat', ['to-string', ['get','reading']], ' nSv/h'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
+        'text-field': ['concat', ['to-string', ['get','usvh']], ' µSv/h'], 'text-size': 9, 'text-font': ['Open Sans Bold'],
         'text-offset': [0, 1.5], 'text-allow-overlap': false,
-      }, paint: { 'text-color': ['match', ['get','status'], 'DANGER','#D32F2F', 'WARNING','#E65100', '#7E57C2'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+      }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Air quality — PM2.5 by EPA band, radius grows with concentration
+      map.addLayer({ id: 'aq-glow', type: 'circle', source: 'air-quality', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,8, 5,18, 10,34],
+        'circle-color': ['get','color'], 'circle-opacity': 0.12, 'circle-blur': 1,
+      }});
+      map.addLayer({ id: 'aq-dots', type: 'circle', source: 'air-quality', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,4, 5,7, 10,10],
+        'circle-color': ['get','color'], 'circle-opacity': 0.85,
+        'circle-stroke-width': 1.5, 'circle-stroke-color': ['get','color'], 'circle-stroke-opacity': 0.35,
+      }});
+      map.addLayer({ id: 'aq-label', type: 'symbol', source: 'air-quality', minzoom: 3, layout: {
+        'text-field': ['concat', ['get','city'], '  ', ['to-string', ['get','pm25']]], 'text-size': 9,
+        'text-font': ['Open Sans Bold'], 'text-offset': [0, 1.5], 'text-allow-overlap': false,
+      }, paint: { 'text-color': ['get','color'], 'text-halo-color': '#000', 'text-halo-width': 1 }});
+
+      // Ukraine frontline — territorial control polygons from DeepStateMap
+      map.addLayer({ id: 'frontline-fill', type: 'fill', source: 'frontlines', paint: {
+        'fill-color': ['get','color'], 'fill-opacity': 0.25,
+      }});
+      map.addLayer({ id: 'frontline-line', type: 'line', source: 'frontlines', paint: {
+        'line-color': ['get','color'], 'line-width': 1.5, 'line-opacity': 0.8,
+      }});
 
       // ══ VANTAGE SDK — Lattice Intelligence Mesh ══
       // Polybolos Style: Delicate, translucent, steel-blue splined mesh
@@ -1957,8 +1980,21 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
 
   useEffect(() => {
     if (!mapReady) return;
-    setGeo('radiation', activeLayers.radiation && data.radiation ? data.radiation.map((r: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [r.lng, r.lat] }, properties: { name: r.name, city: r.city, country: r.country, reading: r.reading, status: r.status, network: r.network } })) : []);
+    setGeo('radiation', activeLayers.radiation && data.radiation ? data.radiation.map((r: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [r.lng, r.lat] }, properties: { name: r.name, reading: r.reading, unit: r.unit, usvh: r.usvh, level: r.level, color: r.color, network: r.network, captured_at: r.captured_at } })) : []);
   }, [mapReady, data.radiation, activeLayers.radiation, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    setGeo('air-quality', (activeLayers as any).air_quality && data.air_quality ? data.air_quality.map((s: any) => ({ type: 'Feature', geometry: { type: 'Point', coordinates: [s.lng, s.lat] }, properties: { name: s.name, city: s.city, country: s.country, pm25: s.pm25, aqi: s.aqi, unit: s.unit, level: s.level, color: s.color, source: s.source } })) : []);
+  }, [mapReady, data.air_quality, (activeLayers as any).air_quality, setGeo]);
+
+  useEffect(() => {
+    if (!mapReady) return;
+    // Already a normalised FeatureCollection — the route reshapes DeepState's
+    // Google-Earth export server-side.
+    const fc = (activeLayers as any).frontlines ? data.frontlines : null;
+    setGeo('frontlines', fc?.features ?? []);
+  }, [mapReady, data.frontlines, (activeLayers as any).frontlines, setGeo]);
 
   // ══ VANTAGE SDK — Lattice Sensor Mesh ══
   // Uses real submarine cable data for SEA domain, curated routes for AIR/INTEL
@@ -2106,6 +2142,8 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
 
     setVis(['balloon-dots','balloon-label'], activeLayers.balloons);
     setVis(['rad-glow','rad-dots','rad-label'], activeLayers.radiation);
+    setVis(['aq-glow','aq-dots','aq-label'], (activeLayers as any).air_quality);
+    setVis(['frontline-fill','frontline-line'], (activeLayers as any).frontlines);
     setVis(['sdk-sea','sdk-sea-glow','sdk-sea-atmo'], activeLayers.sdk_sea !== false);
     setVis(['sdk-air','sdk-air-glow','sdk-air-atmo'], activeLayers.sdk_air !== false);
     setVis(['sdk-intel','sdk-intel-glow','sdk-intel-atmo'], activeLayers.sdk_naval !== false);

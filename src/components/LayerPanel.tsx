@@ -100,6 +100,9 @@ const LAYER_GROUPS: LayerGroupDef[] = [
       { key: 'earthquakes', label: 'Earthquakes', dataKey: 'earthquakes' },
       { key: 'fires', label: 'Active Fires', dataKey: 'fires' },
       { key: 'weather', label: 'Severe Weather', dataKey: 'weather_events' },
+      { key: 'radiation', label: 'Radiation', dataKey: 'radiation' },
+      { key: 'air_quality', label: 'Air Quality', dataKey: 'air_quality' },
+      { key: 'balloons', label: 'Radiosondes', dataKey: 'balloons' },
     ],
   },
   {
@@ -110,6 +113,7 @@ const LAYER_GROUPS: LayerGroupDef[] = [
       { key: 'infrastructure', label: 'Nuclear Facilities', dataKey: 'infrastructure' },
       { key: 'global_incidents', label: 'Global Incidents', dataKey: 'gdelt' },
       { key: 'gdelt_events', label: 'GDELT Events', dataKey: 'gdelt_events' },
+      { key: 'frontlines', label: 'Ukraine Frontline', dataKey: 'frontlines' },
     ],
   },
   {
@@ -126,7 +130,7 @@ const LAYER_GROUPS: LayerGroupDef[] = [
     fullLabel: 'NET & EVENT INTEL',
     icon: Megaphone,
     layers: [
-      { key: 'cf_outages', label: 'Internet Outages', dataKey: 'cf_outages', requires: 'cloudflare' },
+      { key: 'cf_outages', label: 'Internet Disruptions', dataKey: 'cf_outages' },
       { key: 'cf_attacks', label: 'Attack Origins', dataKey: 'cf_attack_origins', requires: 'cloudflare' },
     ],
   },

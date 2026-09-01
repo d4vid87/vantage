@@ -1,70 +1,58 @@
 import { NextResponse } from 'next/server';
+import { httpJson } from '@/lib/httpJson';
+import { cachedSource } from '@/lib/sourceCache';
+import { AQ_CITIES } from '@/lib/aq-cities';
+import { mapOpenMeteo, mapOpenAq, type AirQualityStation } from '@/lib/air-quality';
 
 /**
- * VANTAGE — Air Quality Monitoring API
- * Fetches real-time global air quality data from OpenAQ
- * FREE — No API key required
- * Data: PM2.5, PM10, O3, NO2, SO2, CO measurements worldwide
+ * VANTAGE — Air quality (PM2.5).
+ *
+ * Keyless by default via Open-Meteo over a fixed city grid. With OPENAQ_API_KEY
+ * set, OpenAQ's real ground-station network is used instead.
  */
+
+async function fromOpenMeteo(): Promise<AirQualityStation[]> {
+  const lat = AQ_CITIES.map((c) => c.lat).join(',');
+  const lng = AQ_CITIES.map((c) => c.lng).join(',');
+  const raw = await httpJson<unknown[]>(
+    `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lng}&current=pm2_5,us_aqi`,
+    { timeoutMs: 20000 },
+  );
+  return mapOpenMeteo(raw as never, AQ_CITIES);
+}
+
+async function fromOpenAq(key: string): Promise<AirQualityStation[]> {
+  const raw = await httpJson<never>(
+    'https://api.openaq.org/v3/parameters/2/latest?limit=1000',
+    { timeoutMs: 20000, headers: { 'X-API-Key': key } },
+  );
+  return mapOpenAq(raw);
+}
+
+const load = cachedSource<AirQualityStation>('air-quality', async () => {
+  const key = process.env.OPENAQ_API_KEY;
+  if (key) {
+    try {
+      const stations = await fromOpenAq(key);
+      if (stations.length) return stations;
+    } catch (e) {
+      console.warn('[VANTAGE] OpenAQ failed, falling back to Open-Meteo:', e);
+    }
+  }
+  return fromOpenMeteo();
+}, 30 * 60 * 1000);
 
 export async function GET() {
   try {
-    // OpenAQ v2 — get latest measurements globally
-    // We request PM2.5 (most health-relevant) with coordinates
-    const urls = [
-      'https://api.openaq.org/v2/latest?limit=500&parameter=pm25&order_by=lastUpdated&sort=desc',
-    ];
-
-    const results = await Promise.allSettled(
-      urls.map(url =>
-        fetch(url, {
-          signal: AbortSignal.timeout(10000),
-          headers: { 'Accept': 'application/json' },
-        }).then(r => r.json())
-      )
-    );
-
-    const stations: any[] = [];
-    for (const result of results) {
-      if (result.status !== 'fulfilled') continue;
-      const data = result.value;
-      for (const loc of data.results || []) {
-        if (!loc.coordinates?.latitude || !loc.coordinates?.longitude) continue;
-        const pm25 = loc.measurements?.find((m: any) => m.parameter === 'pm25');
-        if (!pm25) continue;
-        
-        // AQI color coding based on PM2.5 (WHO/EPA scale)
-        const val = pm25.value;
-        let level = 'Good';
-        let color = '#00E676';
-        if (val > 150) { level = 'Hazardous'; color = '#8B0000'; }
-        else if (val > 100) { level = 'Unhealthy'; color = '#FF1744'; }
-        else if (val > 55) { level = 'Unhealthy (Sensitive)'; color = '#FF9500'; }
-        else if (val > 35) { level = 'Moderate'; color = '#FFD700'; }
-
-        stations.push({
-          id: `aq-${loc.location}`,
-          name: loc.location,
-          city: loc.city || 'Unknown',
-          country: loc.country,
-          lat: loc.coordinates.latitude,
-          lng: loc.coordinates.longitude,
-          pm25: val,
-          unit: pm25.unit,
-          level,
-          color,
-          lastUpdated: pm25.lastUpdated,
-        });
-      }
-    }
-
+    const stations = await load();
     return NextResponse.json({
       stations,
       total: stations.length,
+      source: stations[0]?.source ?? 'Open-Meteo',
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('Air Quality API error:', error);
-    return NextResponse.json({ stations: [], error: 'Failed to fetch air quality data' }, { status: 500 });
+    console.error('[VANTAGE] air quality fetch failed:', error);
+    return NextResponse.json({ stations: [], total: 0, error: 'Air quality data unavailable' }, { status: 502 });
   }
 }
