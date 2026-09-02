@@ -86,6 +86,13 @@ CREATE TABLE IF NOT EXISTS briefs (
   meta       TEXT,                        -- JSON: record counts per layer
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS layer_counts (
+  layer TEXT NOT NULL,
+  count INTEGER NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_layer_counts ON layer_counts(layer, ts);
 CREATE INDEX IF NOT EXISTS idx_briefs_created ON briefs (created_at DESC);
 `;
 

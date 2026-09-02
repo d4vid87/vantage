@@ -10,7 +10,10 @@
 
 import { evaluateRule, severityFor, type FeedSnapshot } from './evaluate';
 import { claimNewKeys, listRules, markFired, recordAlert, recordDelivery } from './store';
-import { dispatchAlert } from './dispatch';
+import { channelStatus, dispatchAlert } from './dispatch';
+import { detectAnomaly } from '../anomaly';
+import { historyFor, inCooldown, markAlerted, pruneCounts, recordCount } from '../anomaly-store';
+import type { Channel } from './types';
 
 /** Cap per rule per run so one wide geofence can't spam every channel. */
 export const MAX_ALERTS_PER_RULE = 10;
@@ -137,6 +140,16 @@ const ALERT_FEEDS: Array<{ layer: string; path: string; pick: (data: Record<stri
 /** Cap per layer so a huge feed cannot blow up memory or the match loop. */
 const MAX_RECORDS_PER_LAYER = 500;
 
+/**
+ * True per-layer counts from the last collectSnapshot(), taken BEFORE the
+ * 500-record cap — a 7,000-flight sky must not baseline at 500.
+ */
+let layerCounts: Record<string, number> = {};
+
+export function lastLayerCounts(): Record<string, number> {
+  return { ...layerCounts };
+}
+
 function selfOrigin(): string {
   return process.env.VANTAGE_SELF_ORIGIN || `http://127.0.0.1:${process.env.PORT || 3000}`;
 }
@@ -149,6 +162,7 @@ function selfOrigin(): string {
 export async function collectSnapshot(): Promise<FeedSnapshot> {
   const origin = selfOrigin();
   const snapshot: FeedSnapshot = {};
+  const counts: Record<string, number> = {};
 
   await Promise.all(
     ALERT_FEEDS.map(async ({ layer, path, pick }) => {
@@ -159,7 +173,9 @@ export async function collectSnapshot(): Promise<FeedSnapshot> {
         });
         if (!res.ok) return;
         const data = (await res.json()) as Record<string, unknown>;
-        const records = pick(data).slice(0, MAX_RECORDS_PER_LAYER);
+        const all = pick(data);
+        counts[layer] = all.length;
+        const records = all.slice(0, MAX_RECORDS_PER_LAYER);
         if (records.length) snapshot[layer] = records as FeedSnapshot[string];
       } catch {
         /* feed unavailable this cycle — try again next tick */
@@ -167,5 +183,45 @@ export async function collectSnapshot(): Promise<FeedSnapshot> {
     })
   );
 
+  layerCounts = counts;
   return snapshot;
+}
+
+/**
+ * Compare each layer's current count against its trailing 24h baseline and
+ * alert on spikes. The alert is persisted first, so it shows in the alerts
+ * panel even with no delivery channel configured. Returns alerts fired.
+ */
+export async function runAnomalyCheck(counts: Record<string, number>, now = Date.now()): Promise<number> {
+  let firedCount = 0;
+  const enabled = (Object.entries(channelStatus()) as Array<[Channel, boolean]>)
+    .filter(([, on]) => on)
+    .map(([c]) => c);
+
+  for (const [layer, count] of Object.entries(counts)) {
+    const history = historyFor(layer, now);
+    recordCount(layer, count, now);
+
+    const verdict = detectAnomaly(history, count);
+    if (!verdict.anomalous || inCooldown(layer, now)) continue;
+    markAlerted(layer, now);
+
+    const alert = recordAlert({
+      ruleId: null,
+      title: `Anomaly — ${layer} at ${verdict.ratio.toFixed(1)}x baseline`,
+      body: `The ${layer} layer jumped to ${count} items against a trailing 24h mean of ${Math.round(verdict.mean)}. Sustained spikes alert once per 6h.`,
+      severity: 'ELEVATED',
+      lat: null,
+      lng: null,
+      payload: { kind: 'anomaly', layer, count, mean: verdict.mean, ratio: verdict.ratio },
+    });
+    if (enabled.length > 0) {
+      const { results } = await dispatchAlert(alert, enabled);
+      recordDelivery(alert.id, results);
+    }
+    firedCount++;
+  }
+
+  pruneCounts(now);
+  return firedCount;
 }

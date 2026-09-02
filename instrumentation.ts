@@ -25,8 +25,12 @@ export async function register() {
   const raw = Number(process.env.VANTAGE_ALERT_INTERVAL_MS || DEFAULT_INTERVAL_MS);
   const interval = Number.isFinite(raw) ? Math.max(raw, MIN_INTERVAL_MS) : DEFAULT_INTERVAL_MS;
 
-  const { collectSnapshot, runEvaluation } = await import('./src/lib/alerts/run');
+  const { collectSnapshot, runEvaluation, runAnomalyCheck, lastLayerCounts } =
+    await import('./src/lib/alerts/run');
   const { listRules } = await import('./src/lib/alerts/store');
+
+  // Spike detection needs no rules — it baselines every alert-eligible layer.
+  const anomalyOn = (process.env.VANTAGE_ANOMALY || 'on').trim().toLowerCase() !== 'off';
 
   let running = false;
 
@@ -35,9 +39,13 @@ export async function register() {
     if (running) return;
     running = true;
     try {
-      // Cheap guard: with no rules configured there is nothing to fetch for.
-      if (listRules().length === 0) return;
+      // Cheap guard: nothing wants the snapshot this tick.
+      if (listRules().length === 0 && !anomalyOn) return;
       const snapshot = await collectSnapshot();
+      if (anomalyOn) {
+        const spikes = await runAnomalyCheck(lastLayerCounts());
+        if (spikes > 0) console.log(`[VANTAGE] anomaly check fired ${spikes} alert(s)`);
+      }
       if (Object.keys(snapshot).length === 0) return;
       const fired = await runEvaluation(snapshot);
       if (fired.length > 0) {
