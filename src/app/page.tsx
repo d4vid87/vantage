@@ -265,6 +265,7 @@ export default function Dashboard() {
   const [showBriefs, setShowBriefs] = useState(false);
   const [showFeedHealth, setShowFeedHealth] = useState(false);
   const [showSavedViews, setShowSavedViews] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState<string | null>(null);
   const [showRisk, setShowRisk] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
@@ -375,7 +376,10 @@ export default function Dashboard() {
     // layer panel can hide toggles that could never return data.
     fetch('/api/health')
       .then(r => (r.ok ? r.json() : null))
-      .then(h => { if (h?.capabilities) setCapabilities(h.capabilities); })
+      .then(h => {
+        if (h?.capabilities) setCapabilities(h.capabilities);
+        if (h?.update?.available) setUpdateAvailable(h.update.latest);
+      })
       .catch(() => { /* leave gated layers hidden */ });
 
     // Delay geolocation until map is ready (after splash screen clears)
@@ -1421,7 +1425,8 @@ export default function Dashboard() {
           <span className="opacity-60">ENTITIES</span>
         </span>
 
-        {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
+{updateAvailable && <a href="https://github.com/d4vid87/vantage/releases" target="_blank" rel="noopener noreferrer" className="pointer-events-auto" title={`Update available: v${updateAvailable}`} style={{ color: 'var(--gold-primary)', fontWeight: 700 }}>UPDATE v{updateAvailable}</a>}
+                {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
 
         <span className="text-[11px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
       </motion.div>
@@ -1935,6 +1940,7 @@ export default function Dashboard() {
                         { label: 'SAVED VIEWS', act: () => setShowSavedViews(true) },
                         { label: 'AI COPILOT', act: () => setShowCopilot(true) },
                         { label: 'WATCHLISTS', act: () => setShowWatchlists(true) },
+                        { label: 'DATA BACKUP', act: () => { window.location.href = '/api/backup'; } },
                       ].map(b => (
                         <button key={b.label} onClick={() => { b.act(); setMobilePanel(null); }} className="glass-panel-sm p-3 text-left hud-text text-[10px] text-[var(--text-primary)]">
                           {b.label}

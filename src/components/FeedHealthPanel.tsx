@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { HeartPulse, X, Loader2, RefreshCw } from 'lucide-react';
+import { HeartPulse, X, Loader2, RefreshCw, Download } from 'lucide-react';
 
 interface Feed {
   key: string;
@@ -105,6 +105,13 @@ export default function FeedHealthPanel({ open, onClose }: Props) {
                     </span>}
               </div>
             ))}
+          </div>
+
+          <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '6px 10px' }}>
+            <a href="/api/backup" download className="gotham-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, textDecoration: 'none' }}
+               title="Consistent SQLite snapshot (rules, alerts, briefs, investigations)">
+              <Download size={11} /> DOWNLOAD DATA BACKUP
+            </a>
           </div>
         </motion.div>
       )}

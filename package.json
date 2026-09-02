@@ -1,6 +1,6 @@
 {
   "name": "vantage",
-  "version": "0.1.0",
+  "version": "3.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -25,6 +25,7 @@
     "maplibre-gl": "^5.24.0",
     "next": "16.2.6",
     "nodemailer": "^9.1.0",
+    "pmtiles": "^4.5.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "react-force-graph-2d": "^1.29.1",

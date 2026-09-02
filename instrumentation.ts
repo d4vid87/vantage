@@ -66,6 +66,21 @@ export async function register() {
 
   console.log(`[VANTAGE] watchlist scheduler active — every ${Math.round(interval / 1000)}s`);
 
+  // ── Daily retention prune — machine-generated history only ──
+  const { pruneOldData, retentionDays } = await import('./src/lib/retention');
+  const prune = () => {
+    try {
+      const r = pruneOldData();
+      const total = r.alerts + r.briefs + r.reconAudit + r.watchState;
+      if (total > 0) console.log(`[VANTAGE] retention prune (${retentionDays()}d):`, r);
+    } catch (err) {
+      console.error('[VANTAGE] retention prune failed:', err);
+    }
+  };
+  prune();
+  const pruneTimer = setInterval(prune, 24 * 60 * 60 * 1000);
+  if (typeof pruneTimer.unref === 'function') pruneTimer.unref();
+
   // ── Scheduled daily brief ──
   const briefAt = (process.env.VANTAGE_DAILY_BRIEF || '').trim();
   if (!briefAt) return;

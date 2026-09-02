@@ -2,6 +2,7 @@ import { buildGeometry, closeRing, drawReducer, initialDrawState, measure, type 
 'use client';
 
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { Protocol as PmtilesProtocol } from 'pmtiles';
 import maplibregl from 'maplibre-gl';
 import { createSatelliteLayer, parseColor, type SatPoint } from '@/lib/satellite-layer';
 import { MAP_DEFAULTS, MAP_PALETTE_KEYS, readMapPalette, satColorFor, type MapPalette } from '@/lib/map-palette';
@@ -226,9 +227,15 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
-    
-    // Select basemap style
-    const styleUrl = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+    // Select basemap style. NEXT_PUBLIC_VANTAGE_BASEMAP_STYLE points at a
+    // self-hosted style JSON (pmtiles:// sources supported) so map pans stop
+    // telling a third-party tile CDN where the operator is looking.
+    const styleUrl = process.env.NEXT_PUBLIC_VANTAGE_BASEMAP_STYLE
+      || 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+
+    // Registering the protocol is idempotent and costs nothing when unused.
+    maplibregl.addProtocol('pmtiles', new PmtilesProtocol().tile);
 
     const container = containerRef.current;
     const baseOptions = {

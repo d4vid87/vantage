@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { channelStatus } from '@/lib/alerts/dispatch';
+import { checkForUpdate } from '@/lib/update-check';
+import pkg from '../../../../package.json';
 
 /**
  * Which optional, credential-gated sources this instance can actually serve.
@@ -15,10 +17,12 @@ export function capabilities(): Record<string, boolean> {
 }
 
 export async function GET() {
+  const update = await checkForUpdate(pkg.version);
   return NextResponse.json({
     status: 'operational',
     platform: 'VANTAGE',
-    version: '1.0.0',
+    version: pkg.version,
+    update,
     uptime: process.uptime ? Math.round(process.uptime()) : 0,
     timestamp: new Date().toISOString(),
     capabilities: capabilities(),
