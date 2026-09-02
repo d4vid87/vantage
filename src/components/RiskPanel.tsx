@@ -60,7 +60,7 @@ export default function RiskPanel({ open, onClose, onSelect }: Props) {
         <motion.div
           initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }}
           className="gotham-panel"
-          style={{ position: 'absolute', top: 60, right: 12, width: 380, maxHeight: '76vh', zIndex: 40, display: 'flex', flexDirection: 'column' }}
+          style={{ position: 'absolute', top: 60, right: 12, width: 'min(380px, calc(100vw - 24px))', maxHeight: '76vh', zIndex: 40, display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, letterSpacing: '0.08em' }}>

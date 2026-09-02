@@ -269,7 +269,7 @@ export default function Dashboard() {
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'remote'|null>(null);
+  const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'remote'|'ops'|null>(null);
   const [mapProjection, setMapProjection] = useState<'globe'|'mercator'>('globe');
   const [mapStyle, setMapStyle] = useState<'dark'|'satellite'>('dark');
   const [sweepData, setSweepData] = useState<any>(null);
@@ -1839,6 +1839,7 @@ export default function Dashboard() {
                 // because both answer "take me somewhere".
                 { id: 'route' as const, icon: Route, label: 'ROUTE' },
                 { id: 'remote' as const, icon: Bluetooth, label: 'REMOTE' },
+                { id: 'ops' as const, icon: FileText, label: 'OPS' },
               ].map(tab => {
                 // Routing opens the planner at the top of the screen rather than
                 // the bottom drawer — it needs the room above the keyboard, and
@@ -1889,7 +1890,7 @@ export default function Dashboard() {
                 <div className="px-3 pb-3">
                   <div className="flex items-center justify-between mb-2">
                     <span className="hud-text text-[10px] text-[var(--text-primary)]">
-                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'VANTAGE RECON' : mobilePanel === 'remote' ? 'WORLD REMOTE' : 'SEARCH'}
+                      {mobilePanel === 'layers' ? 'LAYERS & STATS' : mobilePanel === 'markets' ? 'MARKETS & INTEL' : mobilePanel === 'intel' ? 'INTEL FEED' : mobilePanel === 'recon' ? 'VANTAGE RECON' : mobilePanel === 'remote' ? 'WORLD REMOTE' : mobilePanel === 'ops' ? 'ANALYST OPS' : 'SEARCH'}
                     </span>
                     <button onClick={() => setMobilePanel(null)} className="text-[var(--text-muted)] p-1"><X className="w-4 h-4" /></button>
                   </div>
@@ -1921,6 +1922,22 @@ export default function Dashboard() {
                   {mobilePanel === 'recon' && (
                     <div className="space-y-2">
                       <OsintPanel isOpen={true} onClose={() => setMobilePanel(null)} isMobile={true} onSweepVisualize={setSweepData} />
+                    </div>
+                  )}
+                  {mobilePanel === 'ops' && (
+                    <div className="grid grid-cols-2 gap-2">
+                      {[
+                        { label: 'INTELLIGENCE BRIEFS', act: () => setShowBriefs(true) },
+                        { label: 'INSTABILITY INDEX', act: () => { setShowRisk(true); setActiveLayers((p: any) => ({ ...p, country_risk: true })); } },
+                        { label: 'FEED HEALTH', act: () => setShowFeedHealth(true) },
+                        { label: 'SAVED VIEWS', act: () => setShowSavedViews(true) },
+                        { label: 'AI COPILOT', act: () => setShowCopilot(true) },
+                        { label: 'WATCHLISTS', act: () => setShowWatchlists(true) },
+                      ].map(b => (
+                        <button key={b.label} onClick={() => { b.act(); setMobilePanel(null); }} className="glass-panel-sm p-3 text-left hud-text text-[10px] text-[var(--text-primary)]">
+                          {b.label}
+                        </button>
+                      ))}
                     </div>
                   )}
                   {mobilePanel === 'remote' && (

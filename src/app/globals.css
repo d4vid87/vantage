@@ -403,6 +403,9 @@ html:has(.docs-root) body {
   align-items: center;
   padding: 6px 2px 4px;
   gap: 0;
+  /* Eight tabs on a narrow phone: scroll instead of crushing the buttons. */
+  overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .mobile-nav-btn {
