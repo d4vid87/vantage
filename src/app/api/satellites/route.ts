@@ -1,5 +1,6 @@
 
 import { NextResponse } from 'next/server';
+import { recordSuccess, recordFailure } from '@/lib/feed-health';
 import { stealthFetch } from '@/lib/stealthFetch';
 import { propagateTLE } from '@/lib/orbit';
 
@@ -328,6 +329,7 @@ export async function GET(req: Request) {
       categoryCounts[s.category] = (categoryCounts[s.category] || 0) + 1;
     }
 
+    recordSuccess('satellites', satellites.length);
     // ?count=1: /api/stats only wants the number; the full 3.7MB payload
     // cannot enter Next's 2MB fetch cache.
     if (new URL(req.url).searchParams.get('count') === '1') {
@@ -347,6 +349,7 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error('Satellite fetch error:', error);
+    recordFailure('satellites', error instanceof Error ? error.message : String(error), false);
     return NextResponse.json({ satellites: [], error: 'Failed to fetch satellite data' }, { status: 500 });
   }
 }

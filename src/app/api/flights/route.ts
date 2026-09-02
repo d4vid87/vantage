@@ -1,5 +1,6 @@
 
 import { NextResponse } from 'next/server';
+import { recordSuccess, recordFailure } from '@/lib/feed-health';
 import { stealthFetch } from '@/lib/stealthFetch';
 
 export const maxDuration = 60;
@@ -486,6 +487,7 @@ export async function GET(req: Request) {
     cachedData = data;
     lastFetchTime = Date.now();
     fetchPromise = null;
+    recordSuccess('flights', flightCount(data));
     if (countOnly) return NextResponse.json({ count: flightCount(data) });
     return NextResponse.json(data, {
       headers: {
@@ -494,6 +496,7 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error('[VANTAGE] Flight fetch error:', error);
+    recordFailure('flights', error instanceof Error ? error.message : String(error), !!cachedData);
     fetchPromise = null;
     // Stale-cache fallback: return last known good data instead of blank map
     if (cachedData) {

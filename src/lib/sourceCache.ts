@@ -15,6 +15,8 @@
  *                  rather than dropping the layer to zero cameras.
  */
 
+import { recordSuccess, recordFailure } from './feed-health';
+
 interface Entry<T> {
   data: T[];
   expiresAt: number;
@@ -63,19 +65,25 @@ export function cachedSource<T>(
         const data = await fetcher();
         // An empty result is treated as a failed refresh: keep whatever we had.
         if (data.length === 0 && entry?.data.length) {
+          recordFailure(key, 'empty response', true);
           store.set(key, { data: entry.data, expiresAt: now + ttlMs, inflight: null });
           return entry.data;
         }
+        if (data.length === 0) recordFailure(key, 'empty response', false);
+        else recordSuccess(key, data.length);
         store.set(key, { data, expiresAt: now + ttlMs, inflight: null });
         return data;
       } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
         if (entry?.data.length) {
           console.warn(`[VANTAGE] ${key} refresh failed — serving ${entry.data.length} cached cameras`);
+          recordFailure(key, msg, true);
           // Retry sooner than a full TTL, but don't hammer the failing upstream.
           store.set(key, { data: entry.data, expiresAt: now + 60_000, inflight: null });
           return entry.data;
         }
         console.warn(`[VANTAGE] ${key} fetch failed with no cache to fall back on:`, e);
+        recordFailure(key, msg, false);
         store.set(key, { data: [], expiresAt: now + 60_000, inflight: null });
         return [];
       }

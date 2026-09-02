@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Bot, Bell, Share2, FileText } from 'lucide-react';
+import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Bot, Bell, Share2, FileText, HeartPulse } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
 import ScmPanel from '@/components/ScmPanel';
@@ -28,6 +28,7 @@ import type { CopilotAction } from '@/lib/ai/actions';
 const CopilotPanel = dynamic(() => import('@/components/CopilotPanel'));
 const WatchlistPanel = dynamic(() => import('@/components/WatchlistPanel'));
 const BriefPanel = dynamic(() => import('@/components/BriefPanel'));
+const FeedHealthPanel = dynamic(() => import('@/components/FeedHealthPanel'));
 const RiskPanel = dynamic(() => import('@/components/RiskPanel'));
 const InvestigationGraph = dynamic(() => import('@/components/InvestigationGraph'));
 const VantageMap = dynamic(() => import('@/components/VantageMap'), { ssr: false });
@@ -259,6 +260,7 @@ export default function Dashboard() {
   const [showCopilot, setShowCopilot] = useState(false);
   const [showWatchlists, setShowWatchlists] = useState(false);
   const [showBriefs, setShowBriefs] = useState(false);
+  const [showFeedHealth, setShowFeedHealth] = useState(false);
   const [showRisk, setShowRisk] = useState(false);
   const [showGraph, setShowGraph] = useState(false);
   const [arcgisLayers, setArcgisLayers] = useState<Array<{ id: string; title: string; url: string; geojson: any; color: string; visible: boolean; opacity: number }>>([]);
@@ -1436,6 +1438,7 @@ export default function Dashboard() {
         activeRing={activeDrawnRing}
       />
       <BriefPanel open={showBriefs} onClose={() => setShowBriefs(false)} />
+      <FeedHealthPanel open={showFeedHealth} onClose={() => setShowFeedHealth(false)} />
       <RiskPanel open={showRisk} onClose={() => setShowRisk(false)} />
       <InvestigationGraph open={showGraph} onClose={() => setShowGraph(false)} />
 
@@ -1469,6 +1472,9 @@ export default function Dashboard() {
         </div>
 
         <div className="relative group">
+          <button onClick={() => setShowFeedHealth(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showFeedHealth ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Feed health — per-source fetch status" aria-label="Feed health" aria-expanded={showFeedHealth}>
+            <HeartPulse className={`w-4 h-4 ${showFeedHealth ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
+          </button>
           <button onClick={() => setShowBriefs(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showBriefs ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Intelligence briefs — scheduled AI read-outs of the live picture" aria-label="Intelligence briefs" aria-expanded={showBriefs}>
             <FileText className={`w-4 h-4 ${showBriefs ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
           </button>
