@@ -563,9 +563,9 @@ function getRegionsForBounds(lat: number, lng: number, radius: number): string[]
   return regions.length > 0 ? regions : ['uk', 'us-east']; // Default fallback
 }
 
-export async function GET(request: Request) {
+export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(request.url);
+    const { searchParams } = new URL(req.url);
     const region = searchParams.get('region');
     const lat = parseFloat(searchParams.get('lat') || '0');
     const lng = parseFloat(searchParams.get('lng') || '0');
@@ -604,6 +604,10 @@ export async function GET(request: Request) {
       ? 'no-store, max-age=0' 
       : 'public, s-maxage=300, stale-while-revalidate=600';
 
+    // ?count=1: /api/stats only wants the number.
+    if (new URL(req.url).searchParams.get('count') === '1') {
+      return NextResponse.json({ count: allCameras.length }, { headers: { 'Cache-Control': cacheControl } });
+    }
     return NextResponse.json({
       cameras: allCameras,
       total: allCameras.length,

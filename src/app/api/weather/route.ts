@@ -143,7 +143,7 @@ function parseGdacsRss(xml: string): WeatherEvent[] {
   return events;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const [eonetRes, nwsRes, gdacsRes] = await Promise.allSettled([
       stealthFetch('https://eonet.gsfc.nasa.gov/api/v3/events?status=open&limit=100', {
@@ -264,6 +264,10 @@ export async function GET() {
       return NextResponse.json({ events: [], error: 'Failed to fetch weather data' }, { status: 500 });
     }
 
+    // ?count=1: /api/stats only wants the number.
+    if (new URL(req.url).searchParams.get('count') === '1') {
+      return NextResponse.json({ count: events.length });
+    }
     return NextResponse.json({
       events,
       total: events.length,

@@ -199,21 +199,22 @@ function classifyFlight(f: any) {
 
   return {
     callsign,
-    lat: Math.round(lat * 100000) / 100000,
-    lng: Math.round(lon * 100000) / 100000,
+    lat: Math.round(lat * 10000) / 10000,
+    lng: Math.round(lon * 10000) / 10000,
     alt: Math.round(altMeters),
     heading: Math.round(heading),
     speed_knots: speedKnots,
-    model: f.t || 'Unknown',
+    // Omitted-when-empty: JSON.stringify drops undefined, the client already
+    // renders '—' for missing fields, and filler was ~15% of a 3MB payload.
+    model: f.t || undefined,
     icao24: f.hex || '',
-    registration: f.r || 'N/A',
-    squawk: f.squawk || '',
+    registration: f.r || undefined,
+    squawk: f.squawk || undefined,
     airline_code: airlineCode,
     aircraft_category: isHeli ? 'heli' : 'plane',
     category,
     grounded: isGrounded,
     nac_p: f.nac_p,
-    type: 'flight',
   };
 }
 
@@ -294,10 +295,19 @@ function ingestAc(raw: any[], into: any[], seen: Set<string>) {
   }
 }
 
-export async function GET() {
+function flightCount(d: any): number {
+  return (d.commercial_flights?.length || 0) + (d.private_flights?.length || 0)
+    + (d.private_jets?.length || 0) + (d.military_flights?.length || 0);
+}
+
+// ?count=1 returns just the total — /api/stats polls this route and a 3MB
+// payload blows Next's 2MB fetch-cache limit, forcing a refetch per call.
+export async function GET(req: Request) {
+  const countOnly = new URL(req.url).searchParams.get('count') === '1';
   const now = Date.now();
 
   if (cachedData && now - lastFetchTime < CACHE_TTL) {
+    if (countOnly) return NextResponse.json({ count: flightCount(cachedData) });
     return NextResponse.json(cachedData, {
       headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
     });
@@ -306,6 +316,7 @@ export async function GET() {
   if (fetchPromise) {
     try {
       const data = await fetchPromise;
+      if (countOnly) return NextResponse.json({ count: flightCount(data) });
       return NextResponse.json(data, {
         headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
       });
@@ -475,6 +486,7 @@ export async function GET() {
     cachedData = data;
     lastFetchTime = Date.now();
     fetchPromise = null;
+    if (countOnly) return NextResponse.json({ count: flightCount(data) });
     return NextResponse.json(data, {
       headers: {
         'Cache-Control': data.total < 100 ? 'no-store, max-age=0' : 'public, s-maxage=30, stale-while-revalidate=60',

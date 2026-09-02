@@ -93,7 +93,7 @@ const NUCLEAR_FACILITIES = [
   { id: 'nuc-br-angra', name: 'Angra NPP', city: 'Angra dos Reis', country: 'Brazil', lat: -23.0083, lng: -44.4583, status: 'Operational', reactors: 2, capacityMW: 1884, owner: 'Eletronuclear' },
 ];
 
-export async function GET() {
+export async function GET(req: Request) {
   let dynamicFacilities = [...NUCLEAR_FACILITIES];
 
   try {
@@ -131,6 +131,10 @@ export async function GET() {
     // Fallback to static list if API fails
   }
 
+    // ?count=1: /api/stats only wants the number.
+    if (new URL(req.url).searchParams.get('count') === '1') {
+      return NextResponse.json({ count: dynamicFacilities.length });
+    }
   return NextResponse.json({
     infrastructure: dynamicFacilities,
     total: dynamicFacilities.length,

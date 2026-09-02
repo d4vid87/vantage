@@ -71,7 +71,7 @@ function reportPageView(request: NextRequest, event: NextFetchEvent): void {
   );
 }
 
-export async function middleware(request: NextRequest, event: NextFetchEvent) {
+export async function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
 
   if (authEnabled() && !isPublicPath(path)) {

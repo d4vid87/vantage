@@ -4,88 +4,48 @@ export const maxDuration = 60;
 
 /**
  * VANTAGE — Global Stats API
- * Lightweight aggregation endpoint.
- * Fetches metrics from all local APIs and returns ONLY the counts.
- * 
- * ARCHITECTURE NOTE (10k+ Concurrent Users):
- * This endpoint ensures the Next.js server serves ~100 bytes instead of 10MB+ 
- * of raw GeoJSON mapping data when 10,000 users boot the dashboard simultaneously.
- * The underlying API routes utilize their own 45-60s TTL caching, meaning the 
- * heavy external APIs (adsb.lol, USGS) are only hit once per minute, while this 
- * lightweight stats route safely serves 10k concurrent users instantly.
+ * Lightweight aggregation endpoint: asks each heavy route for `?count=1`
+ * (a ~20-byte body) instead of downloading multi-MB payloads to count them.
+ * The full payloads exceed Next's 2MB fetch-cache limit, so counting the
+ * old way re-fetched everything on every call.
  */
+
+const SOURCES = [
+  { key: 'flights',   path: '/api/flights',        revalidate: 45 },
+  { key: 'sats',      path: '/api/satellites',     revalidate: 3600 },
+  { key: 'cctv',      path: '/api/cctv',           revalidate: 3600 },
+  { key: 'weather',   path: '/api/weather',        revalidate: 300 },
+  { key: 'nuclear',   path: '/api/infrastructure', revalidate: 86400 },
+  { key: 'incidents', path: '/api/gdelt',          revalidate: 300 },
+] as const;
 
 export async function GET(req: Request) {
   try {
     const origin = new URL(req.url).origin;
 
-    // Fetch all internal APIs in parallel (they have their own Cache-Control TTLs)
-    const [flightsRes, satsRes, cctvRes, weatherRes, infraRes, gdeltRes] = await Promise.allSettled([
-      fetch(`${origin}/api/flights`, { signal: AbortSignal.timeout(20000), next: { revalidate: 45 } }),
-      fetch(`${origin}/api/satellites`, { signal: AbortSignal.timeout(20000), next: { revalidate: 3600 } }),
-      fetch(`${origin}/api/cctv`, { signal: AbortSignal.timeout(20000), next: { revalidate: 3600 } }),
-      fetch(`${origin}/api/weather`, { signal: AbortSignal.timeout(20000), next: { revalidate: 300 } }),
-      fetch(`${origin}/api/infrastructure`, { signal: AbortSignal.timeout(20000), next: { revalidate: 86400 } }),
-      fetch(`${origin}/api/gdelt`, { signal: AbortSignal.timeout(20000), next: { revalidate: 300 } })
-    ]);
+    const results = await Promise.allSettled(SOURCES.map(s =>
+      fetch(`${origin}${s.path}?count=1`, {
+        signal: AbortSignal.timeout(20000),
+        next: { revalidate: s.revalidate },
+      })
+    ));
 
-    let flights = 0;
-    let sats = 0;
-    let cctv = 0;
-    let weather = 0;
-    let nuclear = 0;
-    let incidents = 0;
-
-    // Safely parse counts
-    if (flightsRes.status === 'fulfilled' && flightsRes.value.ok) {
-      const data = await flightsRes.value.json();
-      flights = (data.commercial_flights?.length || 0) + 
-                (data.private_flights?.length || 0) + 
-                (data.private_jets?.length || 0) + 
-                (data.military_flights?.length || 0);
-    }
-
-    if (satsRes.status === 'fulfilled' && satsRes.value.ok) {
-      const data = await satsRes.value.json();
-      sats = data.satellites?.length || 0;
-    }
-
-    if (cctvRes.status === 'fulfilled' && cctvRes.value.ok) {
-      const data = await cctvRes.value.json();
-      cctv = data.cameras?.length || 0;
-    }
-
-    if (weatherRes.status === 'fulfilled' && weatherRes.value.ok) {
-      const data = await weatherRes.value.json();
-      weather = data.events?.length || 0;
-    }
-
-    if (infraRes.status === 'fulfilled' && infraRes.value.ok) {
-      const data = await infraRes.value.json();
-      nuclear = data.infrastructure?.length || 0;
-    }
-
-    if (gdeltRes.status === 'fulfilled' && gdeltRes.value.ok) {
-        const data = await gdeltRes.value.json();
-        incidents = data.events?.length || 0;
+    const stats: Record<string, number> = {};
+    for (let i = 0; i < SOURCES.length; i++) {
+      const r = results[i];
+      let count = 0;
+      if (r.status === 'fulfilled' && r.value.ok) {
+        try { count = (await r.value.json()).count || 0; } catch { /* keep 0 */ }
+      }
+      stats[SOURCES[i].key] = count;
     }
 
     return NextResponse.json({
-      stats: {
-        flights,
-        sats,
-        cctv,
-        weather,
-        nuclear,
-        incidents
-      },
-      timestamp: new Date().toISOString()
+      stats,
+      timestamp: new Date().toISOString(),
     }, {
-      headers: {
-        'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
-      }
+      headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60' },
     });
-
   } catch (error) {
     console.error('Stats aggregation failed:', error);
     return NextResponse.json({ error: 'Failed to compute stats' }, { status: 500 });

@@ -24,7 +24,7 @@ function decodeEntities(s: string): string {
     .replace(/&amp;/g, '&');
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const res = await fetch('https://www.gdacs.org/xml/rss.xml', { signal: AbortSignal.timeout(15000),
       next: { revalidate: 300 }, // Cache 5 min
@@ -83,6 +83,10 @@ export async function GET() {
       });
     }
 
+    // ?count=1: /api/stats only wants the number.
+    if (new URL(req.url).searchParams.get('count') === '1') {
+      return NextResponse.json({ count: allEvents.length });
+    }
     return NextResponse.json({
       events: allEvents,
       total: allEvents.length,

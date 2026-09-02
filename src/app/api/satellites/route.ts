@@ -188,7 +188,7 @@ async function fetchCelesTrakGroup(url: string): Promise<{ name: string; line1: 
   }
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const nowTime = Date.now();
     let allSats: any[] = globalCachedSats;
@@ -311,7 +311,7 @@ export async function GET() {
         lat: pos.lat,
         lng: pos.lng,
         alt: pos.alt,
-        mission: classification.mission,
+        mission: classification.mission === 'Unknown' ? undefined : classification.mission,
         color: classification.color,
         category,
         noradId: sat.line1.substring(2, 7).trim(),
@@ -328,6 +328,11 @@ export async function GET() {
       categoryCounts[s.category] = (categoryCounts[s.category] || 0) + 1;
     }
 
+    // ?count=1: /api/stats only wants the number; the full 3.7MB payload
+    // cannot enter Next's 2MB fetch cache.
+    if (new URL(req.url).searchParams.get('count') === '1') {
+      return NextResponse.json({ count: satellites.length }, { headers: { 'Cache-Control': cacheControl } });
+    }
     return NextResponse.json({
       satellites,
       total: satellites.length,
