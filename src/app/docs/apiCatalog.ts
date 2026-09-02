@@ -819,6 +819,28 @@ export const API_GROUPS: ApiGroup[] = [
     ],
   },
   {
+    id: 'operations',
+    title: 'Operations',
+    blurb: 'Instance health, per-feed status and operator data management.',
+    endpoints: [
+      {
+        path: '/api/feed-health',
+        method: 'GET',
+        summary: 'Per-upstream fetch status: last success, item count, failing-since, stale-serving.',
+        returns: ['feeds', 'timestamp'],
+        notes: 'In-memory — history resets on restart, and sources appear after their first fetch. A dead upstream shows here as a red row instead of a silently empty layer.',
+      },
+      {
+        path: '/api/backup',
+        method: 'GET',
+        summary: 'Download a consistent SQLite snapshot (VACUUM INTO) of rules, alerts, briefs and investigations.',
+        returns: ['application/octet-stream'],
+        requiresAuth: true,
+        notes: 'Restore by stopping the server and replacing vantage.db in VANTAGE_DATA_DIR with the download.',
+      },
+    ],
+  },
+  {
     id: 'mcp',
     title: 'MCP Server',
     blurb: 'Model Context Protocol endpoint — lets an AI agent query this instance directly.',

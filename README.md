@@ -211,6 +211,48 @@ Rendered as a choropleth and a ranked panel, and fed to the daily brief.
 
 ---
 
+## Operations at a glance
+
+Running an always-on box means knowing when it degrades:
+
+- **Feed health panel** — every upstream fetch reports its status; a source
+  that dies shows as a red row (with *failing since* and whether a stale cached
+  copy is still being served) instead of a quietly empty map layer.
+- **Anomaly detection** — each layer's count is baselined over a trailing 24h;
+  a doubling that moves ≥10 items fires an `ELEVATED` alert through the normal
+  channels, once per layer per 6h. Works with zero watch rules configured;
+  `VANTAGE_ANOMALY=off` disables.
+- **What changed** — each scheduled brief ends with a deterministic
+  *Changes since last brief* section: new outbreaks, new ransomware victims,
+  layer counts that moved ±25%.
+- **Browser notifications** — the zero-config channel. Grant permission once
+  and fired alerts pop as system notifications while a tab is open, no
+  Discord/ntfy setup needed.
+- **Saved views** — bookmark a layer set + camera ("Ukraine watch", "cyber
+  overview") and return to it in one click.
+- **Command palette** — `Ctrl+K` jumps to any country or city, toggles layers
+  and opens panels from the keyboard. All matching is local.
+- **Retention & backup** — machine-generated history is pruned daily
+  (`VANTAGE_RETENTION_DAYS`, default 90; audit trail keeps 180); a consistent
+  SQLite snapshot downloads from the feed-health panel. Restore = stop the
+  server, replace `vantage.db` in `VANTAGE_DATA_DIR`, start again.
+- **Update badge** — the HUD shows when `main` carries a newer version.
+  `VANTAGE_UPDATE_CHECK=off` silences the once-daily check.
+
+### Self-hosted basemap
+
+By default the basemap comes from CARTO's CDN (proxied server-side). To keep
+map pans entirely off third-party CDNs, self-host a
+[Protomaps](https://protomaps.com/) basemap — one `.pmtiles` file — and point
+the build at your style JSON:
+
+```env
+NEXT_PUBLIC_VANTAGE_BASEMAP_STYLE=https://your-host/style.json
+```
+
+The `pmtiles://` protocol is registered, so the style can reference the
+archive directly. This is a build-time variable.
+
 ## MCP server
 
 Point an AI agent at your own instance instead of somebody's cloud:

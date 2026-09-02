@@ -26,8 +26,8 @@ export async function register() {
   const interval = Number.isFinite(raw) ? Math.max(raw, MIN_INTERVAL_MS) : DEFAULT_INTERVAL_MS;
 
   const { collectSnapshot, runEvaluation, runAnomalyCheck, lastLayerCounts } =
-    await import('./src/lib/alerts/run');
-  const { listRules } = await import('./src/lib/alerts/store');
+    await import('./lib/alerts/run');
+  const { listRules } = await import('./lib/alerts/store');
 
   // Spike detection needs no rules — it baselines every alert-eligible layer.
   const anomalyOn = (process.env.VANTAGE_ANOMALY || 'on').trim().toLowerCase() !== 'off';
@@ -67,7 +67,7 @@ export async function register() {
   console.log(`[VANTAGE] watchlist scheduler active — every ${Math.round(interval / 1000)}s`);
 
   // ── Daily retention prune — machine-generated history only ──
-  const { pruneOldData, retentionDays } = await import('./src/lib/retention');
+  const { pruneOldData, retentionDays } = await import('./lib/retention');
   const prune = () => {
     try {
       const r = pruneOldData();
@@ -86,7 +86,7 @@ export async function register() {
   if (!briefAt) return;
 
   const { generateDailyBrief, shouldRunBrief, getSetting, setSetting, BRIEF_LAST_RUN_KEY } =
-    await import('./src/lib/brief');
+    await import('./lib/brief');
 
   let briefing = false;
   const briefTick = async () => {
