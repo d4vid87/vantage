@@ -31,6 +31,7 @@ const BriefPanel = dynamic(() => import('@/components/BriefPanel'));
 const FeedHealthPanel = dynamic(() => import('@/components/FeedHealthPanel'));
 const SavedViewsPanel = dynamic(() => import('@/components/SavedViewsPanel'));
 const CommandPalette = dynamic(() => import('@/components/CommandPalette'), { ssr: false });
+const AlertNotifications = dynamic(() => import('@/components/AlertNotifications'), { ssr: false });
 const RiskPanel = dynamic(() => import('@/components/RiskPanel'));
 const InvestigationGraph = dynamic(() => import('@/components/InvestigationGraph'));
 const VantageMap = dynamic(() => import('@/components/VantageMap'), { ssr: false });
@@ -1453,6 +1454,7 @@ export default function Dashboard() {
         }}
       />
       <RiskPanel open={showRisk} onClose={() => setShowRisk(false)} />
+      <AlertNotifications />
       <CommandPalette
         panels={[
           { id: 'layers', label: 'Layer Panel' },
