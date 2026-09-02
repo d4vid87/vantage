@@ -30,6 +30,7 @@ const WatchlistPanel = dynamic(() => import('@/components/WatchlistPanel'));
 const BriefPanel = dynamic(() => import('@/components/BriefPanel'));
 const FeedHealthPanel = dynamic(() => import('@/components/FeedHealthPanel'));
 const SavedViewsPanel = dynamic(() => import('@/components/SavedViewsPanel'));
+const CommandPalette = dynamic(() => import('@/components/CommandPalette'), { ssr: false });
 const RiskPanel = dynamic(() => import('@/components/RiskPanel'));
 const InvestigationGraph = dynamic(() => import('@/components/InvestigationGraph'));
 const VantageMap = dynamic(() => import('@/components/VantageMap'), { ssr: false });
@@ -1452,6 +1453,34 @@ export default function Dashboard() {
         }}
       />
       <RiskPanel open={showRisk} onClose={() => setShowRisk(false)} />
+      <CommandPalette
+        panels={[
+          { id: 'layers', label: 'Layer Panel' },
+          { id: 'intel', label: 'Intel Feed' },
+          { id: 'alerts', label: 'Live Alerts' },
+          { id: 'markets', label: 'Markets' },
+          { id: 'briefs', label: 'Intelligence Briefs' },
+          { id: 'risk', label: 'Instability Index' },
+          { id: 'feed-health', label: 'Feed Health' },
+          { id: 'saved-views', label: 'Saved Views' },
+          { id: 'copilot', label: 'AI Copilot' },
+          { id: 'watchlists', label: 'Watchlists' },
+        ]}
+        onAction={(a) => {
+          if (a.layer) setActiveLayers((p: any) => ({ ...p, [a.layer!]: !p[a.layer!] }));
+          if (a.lat !== undefined && a.lng !== undefined) setFlyToLocation({ lat: a.lat, lng: a.lng, zoom: a.zoom, ts: Date.now() });
+          if (a.panel === 'layers') setShowLayers(true);
+          if (a.panel === 'intel') setShowIntel(true);
+          if (a.panel === 'alerts') setShowAlerts(true);
+          if (a.panel === 'markets') setShowMarkets(true);
+          if (a.panel === 'briefs') setShowBriefs(true);
+          if (a.panel === 'risk') setShowRisk(true);
+          if (a.panel === 'feed-health') setShowFeedHealth(true);
+          if (a.panel === 'saved-views') setShowSavedViews(true);
+          if (a.panel === 'copilot') setShowCopilot(true);
+          if (a.panel === 'watchlists') setShowWatchlists(true);
+        }}
+      />
       <InvestigationGraph open={showGraph} onClose={() => setShowGraph(false)} />
 
       {/* ── NEW SIDEBAR (Root Level) ── */}

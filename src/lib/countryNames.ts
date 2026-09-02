@@ -88,3 +88,15 @@ export function countriesFromTitle(title: string): string[] {
   }
   return out;
 }
+
+/**
+ * One display name per ISO code — the FIRST alias in the table wins, which is
+ * the canonical spelling by construction. Used by the command palette.
+ */
+export function canonicalCountries(): { iso: string; name: string }[] {
+  const seen = new Map<string, string>();
+  for (const [name, iso] of Object.entries(NAMES)) {
+    if (!seen.has(iso)) seen.set(iso, name);
+  }
+  return [...seen.entries()].map(([iso, name]) => ({ iso, name }));
+}

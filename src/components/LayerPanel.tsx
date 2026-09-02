@@ -41,7 +41,7 @@ interface LayerGroupDef {
   layers: LayerDef[];
 }
 
-const LAYER_GROUPS: LayerGroupDef[] = [
+export const LAYER_GROUPS: LayerGroupDef[] = [
   {
     label: 'SDK',
     fullLabel: 'VANTAGE SDK',
