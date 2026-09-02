@@ -11,6 +11,7 @@ import { db, newId } from './db';
 import { collectSnapshot } from './alerts/run';
 import { generateBriefing, type IntelligenceContext } from './ai-engine';
 import { dispatchAlert, channelStatus } from './alerts/dispatch';
+import { summarizeSnapshot, diffSnapshots, changesSection } from './brief-diff';
 import type { Alert, Channel } from './alerts/types';
 
 export interface Brief {
@@ -159,6 +160,8 @@ async function topRisks(): Promise<unknown[]> {
   }
 }
 
+const PREV_SNAPSHOT_KEY = 'brief_prev_snapshot';
+
 export async function generateDailyBrief(): Promise<BriefResult> {
   const snapshot = await collectSnapshot();
   const risks = await topRisks();
@@ -166,7 +169,15 @@ export async function generateDailyBrief(): Promise<BriefResult> {
   const counts: Record<string, number> = {};
   for (const [k, v] of Object.entries(snapshot)) counts[k] = Array.isArray(v) ? v.length : 0;
 
-  const markdown = await generateBriefing(toContext(snapshot as Record<string, unknown[]>));
+  // What changed since the last run — appended deterministically, because the
+  // model paraphrasing away a new outbreak is the failure this must prevent.
+  let prev = null;
+  try { prev = JSON.parse(getSetting(PREV_SNAPSHOT_KEY) ?? 'null'); } catch { /* corrupt = no diff */ }
+  const summary = summarizeSnapshot(snapshot as Record<string, unknown[]>);
+  const changes = changesSection(diffSnapshots(prev, summary));
+  setSetting(PREV_SNAPSHOT_KEY, JSON.stringify(summary));
+
+  const markdown = (await generateBriefing(toContext(snapshot as Record<string, unknown[]>))) + changes;
 
   const brief = saveBrief({
     markdown,
