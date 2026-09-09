@@ -30,7 +30,7 @@ export async function GET() {
     checks.push({ name: `AI (${selected})`, ok, detail });
   } catch { checks.push({ name: 'AI', ok: false, detail: 'AI configuration or connectivity check failed. Verify the provider and endpoint.' }); }
   for (const [name, ok] of Object.entries(channelStatus())) checks.push({ name: `${name} delivery`, ok, detail: ok ? 'Configured. Use Send test notification in Watchlists to verify delivery.' : 'Not configured (optional).' });
-  for (const [name, ok] of [['AIS vessel feed', !!process.env.AIS_API_KEY], ['ACLED feed', !!(process.env.ACLED_API_KEY && process.env.ACLED_EMAIL)] ] as const) checks.push({ name, ok, detail: ok ? 'Credentials configured.' : 'Credentials absent; this optional feed is unavailable.' });
+  for (const [name, ok] of [['Finance', !!process.env.FINNHUB_API_KEY], ['AIS vessel feed', !!process.env.AIS_API_KEY], ['ACLED feed', !!(process.env.ACLED_API_KEY && process.env.ACLED_EMAIL)] ] as const) checks.push({ name, ok, detail: ok ? 'Credentials configured.' : 'Credentials absent; this optional feed is unavailable.' });
   let schedule;
   try { schedule = briefSchedule(); if (schedule.error) checks.push({ name: 'Brief schedule', ok: false, detail: schedule.error }); } catch { checks.push({ name: 'Brief timezone', ok: false, detail: 'Invalid VANTAGE_BRIEF_TIMEZONE. Use an IANA timezone such as America/Chicago.' }); }
   return NextResponse.json({ checks, schedule });

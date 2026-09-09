@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, X } from 'lucide-react';
-import { ALL_CHANNELS, type Channel, type WatchRule, type WatchKind, type AoiSpec, type ThresholdSpec, type EntitySpec } from '@/lib/alerts/types';
+import { ALL_CHANNELS, type Channel, type WatchRule, type WatchKind, type AoiSpec, type ThresholdSpec, type EntitySpec, type MarketSpec, type WeatherSpec } from '@/lib/alerts/types';
 import { validateRule, WATCH_FIELDS } from '@/lib/alerts/validation';
 import { usePanel } from '@/hooks/usePanel';
 
@@ -59,7 +59,7 @@ export default function WatchlistPanel({ open, onClose, activeRing }: Props) {
   };
   const changeLayer = (value: string) => { setLayer(value); setField(WATCH_FIELDS[value]?.[0] ?? ''); };
   const input = () => validateRule({ name, kind, channels, webhookUrl,
-    spec: kind === 'entity' ? { entityType, identifier }
+    spec: (kind === 'market' || kind === 'weather') && editing ? editing.spec : kind === 'entity' ? { entityType, identifier }
       : kind === 'aoi' ? { ring: editing?.kind === 'aoi' && !replaceRing ? (editing.spec as AoiSpec).ring : activeRing,
         layers: editing?.kind === 'aoi' && layer === (editing.spec as AoiSpec).layers[0] ? (editing.spec as AoiSpec).layers : [layer] }
       : { layer, field, min: min.trim() ? Number(min) : NaN, ...(editing?.kind === 'threshold' && (editing.spec as ThresholdSpec).bbox ? { bbox: (editing.spec as ThresholdSpec).bbox } : {}) },
@@ -97,9 +97,18 @@ export default function WatchlistPanel({ open, onClose, activeRing }: Props) {
       <form className="space-y-2" onSubmit={e => { e.preventDefault(); void action('save'); }}>
         <label className="block">Watch name<input aria-label="Watch name" className="gotham-input w-full" maxLength={120} required value={name} onChange={e => setName(e.target.value)} /></label>
         <label className="block">Kind<select className="gotham-input w-full" value={kind} onChange={e => { setKind(e.target.value as WatchKind); if (!WATCH_FIELDS[layer]?.length) changeLayer('earthquakes'); }}>
-          <option value="threshold">Threshold</option><option value="aoi">Geofence</option><option value="entity">Entity</option>
+          {editing?.kind === 'market' && <option value="market">Market</option>}{editing?.kind === 'weather' && <option value="weather">Weather</option>}<option value="threshold">Threshold</option><option value="aoi">Geofence</option><option value="entity">Entity</option>
         </select></label>
-        {kind === 'entity' ? <>
+        {kind === 'market' && editing ? <>
+          <label>Symbol<input className="gotham-input w-full" value={(editing.spec as MarketSpec).symbol} onChange={e=>setEditing({...editing,spec:{...editing.spec as MarketSpec,symbol:e.target.value}})}/></label>
+          <label>Measure<select className="gotham-input w-full" value={(editing.spec as MarketSpec).field} onChange={e=>setEditing({...editing,spec:{...editing.spec as MarketSpec,field:e.target.value as MarketSpec['field']}})}><option value="price">Price (USD)</option><option value="changePercent">Daily move (%)</option></select></label>
+          <label>Condition<select className="gotham-input w-full" value={(editing.spec as MarketSpec).comparator} onChange={e=>setEditing({...editing,spec:{...editing.spec as MarketSpec,comparator:e.target.value as MarketSpec['comparator']}})}><option value="above">Above</option><option value="below">Below</option></select></label>
+          <label>Threshold<input className="gotham-input w-full" type="number" step="any" value={(editing.spec as MarketSpec).threshold} onChange={e=>setEditing({...editing,spec:{...editing.spec as MarketSpec,threshold:Number(e.target.value)}})}/></label>
+          <p>One notification per arming. Enable the saved rule to rearm.</p>
+        </> : kind === 'weather' && editing ? <>
+          <p>Monitoring {(editing.spec as WeatherSpec).place?.name || 'the saved drawn area'}.</p>
+          <label>Notifications<select className="gotham-input w-full" value={(editing.spec as WeatherSpec).events.join(',')} onChange={e=>setEditing({...editing,spec:{...editing.spec as WeatherSpec,events:e.target.value.split(',')}})}><option value="warnings,watches">Warnings and watches</option><option value="warnings">Warnings only</option><option value="all">All official alerts</option></select></label>
+        </> : kind === 'entity' ? <>
           <label className="block">Entity type<select className="gotham-input w-full" value={entityType} onChange={e => setEntityType(e.target.value as 'flight' | 'vessel')}><option value="flight">Aircraft</option><option value="vessel">Vessel</option></select></label>
           <label className="block">{entityType === 'flight' ? 'ICAO24, callsign, or registration (exact match)' : 'MMSI or vessel name (exact match)'}<input className="gotham-input w-full" required value={identifier} onChange={e => setIdentifier(e.target.value)} /></label>
           <p className="opacity-70">Wallet, Telegram, and sanctions watches are not yet supported by the scheduler.</p>

@@ -1,3 +1,4 @@
+import { dashboardSettings } from '../dashboard/settings';
 /** Watch-rule and alert persistence on top of the SQLite store. */
 
 import { validateRule, type RuleInput } from './validation';
@@ -46,8 +47,15 @@ export function getRule(id: string): WatchRule | null {
   return row ? toRule(row) : null;
 }
 
+function marketCapacity(spec: import('./types').WatchSpec, except?: string) {
+  const symbols = new Set(listRules().filter(r => r.id !== except && r.enabled && r.kind === 'market').map(r => (r.spec as import('./types').MarketSpec).symbol));
+  dashboardSettings().symbols.forEach(s => symbols.add(s));
+  symbols.add((spec as import('./types').MarketSpec).symbol);
+  if (symbols.size > 20) throw new Error('Watchlist and armed rules can cover at most 20 symbols combined.');
+}
 export function createRule(raw: RuleInput): WatchRule {
   const input = validateRule(raw);
+  if (input.kind === 'market') marketCapacity(input.spec);
   const id = newId('rule');
   const createdAt = new Date().toISOString();
   const spec = input.webhookUrl ? { ...input.spec, webhookUrl: input.webhookUrl } : input.spec;
@@ -61,7 +69,14 @@ export function createRule(raw: RuleInput): WatchRule {
 }
 
 export function setRuleEnabled(id: string, enabled: boolean): void {
-  db().prepare('UPDATE watch_rules SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+  db().transaction(() => {
+    const rule = getRule(id);
+    if (enabled && rule?.kind === 'market') {
+      marketCapacity(rule.spec, id);
+      db().prepare('DELETE FROM watch_state WHERE rule_id = ?').run(id);
+    }
+    db().prepare('UPDATE watch_rules SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
+  })();
 }
 
 export function deleteRule(id: string): void {
@@ -166,6 +181,7 @@ export function listAlerts(limit = 100): Alert[] {
 export function updateRule(id: string, raw: RuleInput): WatchRule {
   const input = validateRule(raw);
   const previous = getRule(id);
+  if (input.kind === 'market' && previous?.enabled) marketCapacity(input.spec, id);
   if (!previous) throw new Error('Watch not found.');
   const spec = { ...input.spec, ...(input.webhookUrl ? { webhookUrl: input.webhookUrl } : {}) };
   db().transaction(() => {
@@ -186,4 +202,18 @@ export function snoozeRule(id: string, until: string | null): void {
 export function acknowledgeAlert(id: string, acknowledged: boolean): boolean {
   return db().prepare('UPDATE alerts SET acknowledged_at = ? WHERE id = ?')
     .run(acknowledged ? new Date().toISOString() : null, id).changes > 0;
+}
+
+/** Reconcile only a successfully refreshed national NWS snapshot. Never infer cancellation from an outage. */
+export function reconcileWeatherHistory(activeIds: Set<string>, now = Date.now()): void {
+  const rows = db().prepare("SELECT id, payload FROM alerts WHERE rule_id IN (SELECT id FROM watch_rules WHERE kind = 'weather')").all() as {id:string;payload:string|null}[];
+  db().transaction(() => {
+    for (const row of rows) {
+      let payload: Record<string,unknown>; try { payload = JSON.parse(row.payload || '{}'); } catch { continue; }
+      if (!payload || typeof payload.id !== 'string') continue;
+      const status = Date.parse(String(payload.expires)) <= now ? 'expired' : activeIds.has(payload.id) ? 'active' : 'no longer active';
+      if (payload.lifecycle === status) continue;
+      db().prepare('UPDATE alerts SET payload = ? WHERE id = ?').run(JSON.stringify({...payload,lifecycle:status,lastCheckedAt:new Date(now).toISOString()}),row.id);
+    }
+  })();
 }

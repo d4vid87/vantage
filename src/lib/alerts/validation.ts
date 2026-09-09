@@ -1,3 +1,5 @@
+import { symbolOf, validatePlace } from '../dashboard/types';
+import { polygonGeometry } from '../dashboard/geometry';
 import { ALL_CHANNELS, type Channel, type WatchKind, type WatchSpec } from './types';
 
 /** The scheduled sources and their numeric fields. Shared with the watch form. */
@@ -19,6 +21,15 @@ export function validateRule(value: unknown): RuleInput {
   if (!record(spec)) throw new Error('A watch spec is required.');
   let clean: WatchSpec;
   switch (value.kind) {
+    case 'market': {
+      if (!['price', 'changePercent'].includes(String(spec.field)) || !['above', 'below'].includes(String(spec.comparator)) || !finite(spec.threshold) || (spec.field === 'price' && spec.threshold <= 0)) throw new Error('Choose a valid market threshold.');
+      clean = { symbol: symbolOf(spec.symbol), field: spec.field as 'price' | 'changePercent', comparator: spec.comparator as 'above' | 'below', threshold: spec.threshold }; break;
+    }
+    case 'weather': {
+      if (!!spec.place === !!spec.ring || !Array.isArray(spec.events) || !spec.events.length || spec.events.length > 100 || !spec.events.every(x => typeof x === 'string' && x.length > 0 && x.length <= 120)) throw new Error('Choose one place or area and weather event types.');
+      if (spec.ring && (!Array.isArray(spec.ring) || spec.ring.length > 1000 || !polygonGeometry({ type: 'Polygon', coordinates: [spec.ring] }))) throw new Error('Invalid weather area.');
+      clean = { ...(spec.place ? { place: validatePlace(spec.place) } : { ring: spec.ring as number[][] }), events: [...new Set(spec.events as string[])] }; break;
+    }
     case 'entity':
       if (spec.entityType !== 'flight' && spec.entityType !== 'vessel') throw new Error('Scheduled entity watches support aircraft and vessels only.');
       if (typeof spec.identifier !== 'string' || !spec.identifier.trim() || spec.identifier.length > 200) throw new Error('Enter an identifier (up to 200 characters).');
@@ -45,7 +56,7 @@ export function validateRule(value: unknown): RuleInput {
       clean = { layers: [...new Set(spec.layers)], ring: ring.map(p => [...p]) };
       break;
     }
-    default: throw new Error('Choose entity, threshold, or geofence.');
+    default: throw new Error('Choose entity, threshold, geofence, market, or weather.');
   }
   const channels = value.channels ?? [];
   if (!Array.isArray(channels) || !channels.every(c => ALL_CHANNELS.includes(c))) throw new Error('Invalid notification channels.');

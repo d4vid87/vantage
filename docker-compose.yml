@@ -122,6 +122,9 @@ x-casaos:
     - container: FIRMS_API_KEY
       description:
         en_us: "(Optional) NASA FIRMS API key for active-fire data."
+    - container: FINNHUB_API_KEY
+      description:
+        en_us: "(Optional) Server-only Finnhub key for the personal stock ticker, snapshots and news."
     - container: AIS_API_KEY
       description:
         en_us: "(Optional) aisstream.io key for maritime vessel tracking."

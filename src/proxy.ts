@@ -9,6 +9,10 @@ import { SESSION_COOKIE, authEnabled, verifySession } from '@/lib/auth';
  * loopback. Lock those down too by putting a reverse proxy in front.
  */
 const PROTECTED_API = [
+  '/api/dashboard',
+  '/api/finance',
+  '/api/weather/details',
+  '/api/weather/radar',
   '/api/investigations',
   '/api/alerts',
   '/api/watchlist',

@@ -25,8 +25,15 @@ interface SatelliteRow {
   noradId?: string;
 }
 import 'maplibre-gl/dist/maplibre-gl.css';
+import { useGlobeEnhancements } from '@/hooks/useGlobeEnhancements';
+import { EMPTY_GLOBE, type GlobeEnhancements } from '@/lib/dashboard/globe';
+
+import type { MapFeedStatus } from '@/lib/map-feeds';
+const NO_FEED_STATUS: MapFeedStatus[] = [];
 
 interface VantageMapProps {
+  feedStatuses?: MapFeedStatus[];
+  enhancements?: GlobeEnhancements;
   data: any;
   activeLayers: Record<string, boolean>;
   onEntityClick?: (entity: any) => void;
@@ -97,7 +104,7 @@ function computeSolarTerminator(): [number, number][] {
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] };
 
-function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {} }: VantageMapProps) {
+function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE, data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {} }: VantageMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -3184,6 +3191,8 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedSat, clearSat]);
+
+  useGlobeEnhancements(mapRef, mapReady, enhancements, activeLayers, feedStatuses);
 
   return (
     <>

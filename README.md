@@ -316,3 +316,7 @@ Vantage is a fork of [**OSIRIS**](https://github.com/simplifaisoul/osiris) by [s
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### Personal finance, weather, and globe overlays
+
+The 3D globe now has a personal stock ticker, company news/snapshots, saved-place weather, radar and forecast overlays, and shared globe presets with appearance controls. Add symbols and places through the top dashboard's **Setup** panel. Personal financial data uses a server-only `FINNHUB_API_KEY`; weather does not require a key. New stock/weather watches use the existing inbox and delivery system. See [configuration, controls, limits, and API details](docs/dashboard-enhancements.md).

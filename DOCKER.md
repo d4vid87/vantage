@@ -270,7 +270,7 @@ Vantage evaluates watch rules on its own timer, so alerts fire with no browser
 open:
 
 ```env
-VANTAGE_ALERT_INTERVAL_MS=120000   # default 2 min, floor 5s
+VANTAGE_ALERT_INTERVAL_MS=60000    # default 1 min, floor 5s
 VANTAGE_SCHEDULER=                 # set to "off" to disable
 ```
 
@@ -304,3 +304,7 @@ Restore by stopping the container and putting the file back as
 
 There is none. Vantage makes no outbound analytics call unless you point
 `VANTAGE_ANALYTICS_URL` at an ingest endpoint you control.
+
+### Personal finance, weather, and globe controls
+
+Set `FINNHUB_API_KEY` in `.env` for the personal stock ticker, news, and company snapshots. The existing `env_file` passes it to the container; never use a `NEXT_PUBLIC_` key. NWS, Open-Meteo, RainViewer, and NHC integrations need no key. Dashboard preferences and globe presets live in the existing SQLite data volume. See [the enhancement guide](docs/dashboard-enhancements.md) for provider limits and configuration.

@@ -1,3 +1,6 @@
+import { freshTime } from '../dashboard/types';
+import { inGeometry, intersectsGeometry, polygonGeometry } from '../dashboard/geometry';
+import type { MarketSpec, WeatherSpec } from './types';
 /**
  * ═══════════════════════════════════════════════════════════════
  *  VANTAGE — Watch-rule evaluator
@@ -99,6 +102,21 @@ function matchThreshold(spec: ThresholdSpec, snapshot: FeedSnapshot): Match[] {
 export function evaluateRule(rule: WatchRule, snapshot: FeedSnapshot): Match[] {
   if (!rule.enabled || (rule.snoozedUntil && Date.parse(rule.snoozedUntil) > Date.now())) return [];
   switch (rule.kind) {
+    case 'market': {
+      const spec = rule.spec as MarketSpec;
+      return (snapshot.personal_quotes ?? []).filter(rec => rec.symbol === spec.symbol && rec.marketOpen === true && freshTime(rec.receivedAt,120000) && freshTime(rec.sourceTime,600000) && typeof rec[spec.field] === 'number' && Number.isFinite(rec[spec.field]) && (spec.comparator === 'above' ? Number(rec[spec.field]) > spec.threshold : Number(rec[spec.field]) < spec.threshold)).map(record => ({ key: 'market:' + spec.symbol, layer: 'personal_quotes', record, lat: null, lng: null, label: `${spec.symbol} ${spec.field} ${spec.comparator} ${spec.threshold}` }));
+    }
+    case 'weather': {
+      const spec = rule.spec as WeatherSpec;
+      return (snapshot.weather_alerts ?? []).filter(rec => {
+        if (Date.parse(String(rec.expires)) <= Date.now() || !Number.isFinite(Date.parse(String(rec.expires))) || !freshTime(rec.receivedAt,120000)) return false;
+        const event = String(rec.event);
+        if (!spec.events.some(x => x === event || (x === 'warnings' && /Warning$/.test(event)) || (x === 'watches' && /Watch$/.test(event)) || x === 'all')) return false;
+        if (spec.place && Array.isArray(rec.placeIds) && rec.placeIds.includes(spec.place.id)) return true;
+        const g = polygonGeometry(rec.geometry); if (!g) return false;
+        return spec.place ? inGeometry(spec.place.lng, spec.place.lat, g) : !!spec.ring && intersectsGeometry(spec.ring, g);
+      }).map(record => ({ key: String(record.revisionKey), layer: 'weather_alerts', record, lat: spec.place?.lat ?? null, lng: spec.place?.lng ?? null, label: String(record.title) }));
+    }
     case 'aoi':
       return matchAoi(rule.spec as AoiSpec, snapshot);
     case 'entity':
@@ -119,6 +137,9 @@ export function severityFor(match: Match): 'CRITICAL' | 'HIGH' | 'ELEVATED' | 'I
     if (mag >= 5) return 'ELEVATED';
   }
   const sev = typeof match.record.severity === 'string' ? match.record.severity.toUpperCase() : null;
+  if (sev === 'EXTREME') return 'CRITICAL';
+  if (sev === 'SEVERE') return 'HIGH';
+  if (sev === 'MODERATE') return 'ELEVATED';
   if (sev === 'CRITICAL' || sev === 'HIGH' || sev === 'ELEVATED') return sev;
   return 'INFO';
 }

@@ -13,7 +13,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
-const DEFAULT_INTERVAL_MS = 120_000;
+const DEFAULT_INTERVAL_MS = 60_000;
 const MIN_INTERVAL_MS = 5_000;
 
 export async function register() {
@@ -25,7 +25,7 @@ export async function register() {
   const raw = Number(process.env.VANTAGE_ALERT_INTERVAL_MS || DEFAULT_INTERVAL_MS);
   const interval = Number.isFinite(raw) ? Math.max(raw, MIN_INTERVAL_MS) : DEFAULT_INTERVAL_MS;
 
-  const { collectSnapshot, runEvaluation, runAnomalyCheck, lastLayerCounts } =
+  const { collectSnapshot, collectMarketSnapshot, collectWeatherSnapshot, runEvaluation, runAnomalyCheck, lastLayerCounts } =
     await import('./lib/alerts/run');
   const { listRules } = await import('./lib/alerts/store');
 
@@ -41,7 +41,7 @@ export async function register() {
     try {
       // Cheap guard: nothing wants the snapshot this tick.
       if (listRules().length === 0 && !anomalyOn) return;
-      const snapshot = await collectSnapshot();
+      const snapshot = await collectSnapshot([], true);
       if (anomalyOn) {
         const spikes = await runAnomalyCheck(lastLayerCounts());
         if (spikes > 0) console.log(`[VANTAGE] anomaly check fired ${spikes} alert(s)`);
@@ -65,6 +65,19 @@ export async function register() {
   if (typeof timer.unref === 'function') timer.unref();
 
   console.log(`[VANTAGE] watchlist scheduler active — every ${Math.round(interval / 1000)}s`);
+
+  // Keep slow geographic resolution from delaying price alerts or existing feeds.
+  for (const [name, read] of [['market', collectMarketSnapshot], ['weather', collectWeatherSnapshot]] as const) {
+    let busy = false;
+    const personalTimer = setInterval(async () => {
+      if (busy) return;
+      busy = true;
+      try { await runEvaluation(await read()); }
+      catch (error) { console.error(`[VANTAGE] ${name} watch refresh failed:`, error); }
+      finally { busy = false; }
+    }, Math.max(interval, 60_000));
+    personalTimer.unref?.();
+  }
 
   // ── Daily retention prune — machine-generated history only ──
   const { pruneOldData, retentionDays } = await import('./lib/retention');

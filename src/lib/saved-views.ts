@@ -1,3 +1,4 @@
+import { validateStyles, type LayerStyle } from './dashboard/types';
 /**
  * ═══════════════════════════════════════════════════════════════
  *  VANTAGE — saved views
@@ -15,6 +16,8 @@ export interface SavedView {
   lng: number;
   zoom: number;
   savedAt: number;
+  styles?: Record<string, LayerStyle>;
+  projection?: 'globe' | 'mercator';
 }
 
 export const VIEWS_KEY = 'vantage-saved-views';
@@ -28,7 +31,7 @@ export function parseViews(raw: string | null): SavedView[] {
     return list.filter((v): v is SavedView =>
       !!v && typeof v.name === 'string' && !!v.name.trim() && v.name.length <= 120 && Array.isArray(v.layers) && v.layers.every((k: unknown) => typeof k === 'string')
       && Number.isFinite(v.lat) && Math.abs(v.lat) <= 90 && Number.isFinite(v.lng) && Number.isFinite(v.zoom) && v.zoom >= 0 && v.zoom <= 24
-    ).slice(0, MAX_VIEWS);
+    ).filter(v => { try { if (v.styles) validateStyles(v.styles); return !v.projection || ['globe','mercator'].includes(v.projection); } catch { return false; } }).slice(0, MAX_VIEWS);
   } catch {
     return [];
   }

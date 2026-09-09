@@ -3,8 +3,7 @@
 /**
  * VANTAGE — saved views
  *
- * Named bookmarks of the working picture: active layers + camera. Stored in
- * localStorage like the drawn shapes; applying one swaps the layer set and
+ * Named bookmarks of the working picture: active layers + camera. Shared through SQLite settings, with legacy local imports; applying one swaps the layer set and
  * flies the camera.
  */
 
@@ -12,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { usePanel } from '@/hooks/usePanel';
 import { Bookmark, X, Trash2, Plus } from 'lucide-react';
+import { asRecord, type DashboardSettings, type LayerStyle } from '@/lib/dashboard/types';
 import { VIEWS_KEY, parseViews, importViews, upsertView, removeView, type SavedView } from '@/lib/saved-views';
 
 interface Props {
@@ -20,36 +20,54 @@ interface Props {
   currentLayers: string[];
   currentCamera: { lat: number; lng: number; zoom: number };
   onApply: (view: SavedView) => void;
+  currentStyles?: Record<string, LayerStyle>;
+  projection?: 'globe' | 'mercator';
 }
 
-export default function SavedViewsPanel({ open, onClose, currentLayers, currentCamera, onApply }: Props) {
+export default function SavedViewsPanel({ open, onClose, currentLayers, currentCamera, onApply, currentStyles = {}, projection = 'globe' }: Props) {
   const panel = usePanel<HTMLDivElement>(open, onClose);
   const [error, setError] = useState('');
   const [views, setViews] = useState<SavedView[]>([]);
   const [name, setName] = useState('');
+  const [shared, setShared] = useState<DashboardSettings | null>(null);
 
   useEffect(() => {
-    // Read browser-local views when the panel opens, after server hydration.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    if (open) { try { setViews(parseViews(localStorage.getItem(VIEWS_KEY))); } catch { setError('Browser storage is unavailable.'); } }
+    if (!open) return;
+    const abort = new AbortController();
+    fetch('/api/dashboard/settings', { signal: abort.signal }).then(async r => {
+      if (!r.ok) throw new Error('Could not load shared views.');
+      const settings: DashboardSettings = await r.json();
+      let legacy: SavedView[] = [];
+      try { legacy = parseViews(localStorage.getItem(VIEWS_KEY)); } catch { /* Server views remain available. */ }
+      const remote = settings.presets.map(p => ({ ...p, savedAt: 0 }));
+      if (!abort.signal.aborted) { setShared(settings); setViews([...remote, ...legacy.filter(v => !remote.some(r => r.name.toLowerCase() === v.name.toLowerCase()))].slice(0,24)); }
+    }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
+    return () => abort.abort();
   }, [open]);
 
-  const persist = (next: SavedView[]) => {
-    try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); setViews(next); setError(''); } catch { setError('Could not save views in browser storage.'); }
+  const persist = async (next: SavedView[]) => {
+    if (!shared) { setError('Wait for shared settings to load.'); return; }
+    try {
+      const presets = next.map(v => ({name:v.name,layers:v.layers,lat:v.lat,lng:((v.lng+540)%360)-180,zoom:v.zoom,styles:v.styles??{},projection:v.projection??'globe'}));
+      const r = await fetch('/api/dashboard/settings', {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({...shared,presets})});
+      const data = await r.json(); if(!r.ok) throw new Error(String(asRecord(data).error || 'Save failed.'));
+      setShared(data); setViews(next); setError(''); return true;
+    } catch(e) { setError(e instanceof Error ? e.message : 'Could not save shared views.'); }
   };
 
-  const saveCurrent = () => {
+  const saveCurrent = async () => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    persist(upsertView(views, {
+    const saved = await persist(upsertView(views, {
       name: trimmed,
       layers: currentLayers,
       lat: currentCamera.lat,
       lng: currentCamera.lng,
       zoom: currentCamera.zoom,
       savedAt: Date.now(),
+      styles: currentStyles, projection,
     }));
-    setName('');
+    if (saved) setName('');
   };
 
   return (
@@ -92,7 +110,7 @@ export default function SavedViewsPanel({ open, onClose, currentLayers, currentC
             <label className="block">Import views (matching names are replaced)<input type="file" accept="application/json,.json" className="block w-full" onChange={async e => {
               const file = e.target.files?.[0]; e.target.value = '';
               if (!file) return;
-              try { if (file.size > 1_000_000) throw new Error('View file is too large.'); persist(importViews(await file.text(), views)); }
+              try { if (file.size > 1_000_000) throw new Error('View file is too large.'); await persist(importViews(await file.text(), views)); }
               catch (err) { setError(err instanceof Error ? err.message : 'Import failed.'); }
             }} /></label>
             {error && <p role="alert" className="text-red-300">{error}</p>}
@@ -100,7 +118,7 @@ export default function SavedViewsPanel({ open, onClose, currentLayers, currentC
           <div style={{ overflowY: 'auto', padding: '4px 10px 8px', fontSize: 11, color: '#CBD5E1' }}>
             {views.length === 0 && (
               <div style={{ opacity: 0.6, padding: '8px 0' }}>
-                No views yet. Set up layers and camera, then save the picture under a name.
+                No views yet. Save layers, appearance, projection, and camera across your devices.
               </div>
             )}
             {views.map(v => (

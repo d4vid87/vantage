@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import { asRecord } from '@/lib/dashboard/types';
 import type { Alert } from '@/lib/alerts/types';
 
 export default function AlertInbox({ onLocate }: { onLocate: (lat: number, lng: number) => void }) {
@@ -35,7 +36,7 @@ export default function AlertInbox({ onLocate }: { onLocate: (lat: number, lng: 
     {!visible.length && <p>No stored alerts match this filter.</p>}
     {visible.map(a => <article key={a.id} className="border rounded p-2 space-y-1" style={{ opacity: a.acknowledgedAt ? 0.65 : 1 }}>
       <div>{a.severity} · <time>{new Date(a.createdAt).toLocaleString()}</time></div>
-      <strong>{a.title}</strong><p>{a.body}</p>
+      <strong>{a.title}</strong><p>{a.body}</p>{!!asRecord(a.payload).lifecycle && <p>Weather status: {String(asRecord(a.payload).lifecycle)}</p>}
       <p className="break-words">Delivery: {a.delivered && Object.keys(a.delivered).length ? Object.entries(a.delivered).map(([c, result]) => `${c}: ${result}`).join(' · ') : a.delivered ? 'Inbox only' : 'Not yet recorded'}</p>
       <div className="flex gap-3"><button onClick={() => acknowledge(a)}>{a.acknowledgedAt ? 'Mark unacknowledged' : 'Acknowledge'}</button>{a.lat != null && a.lng != null && <button onClick={() => onLocate(a.lat!, a.lng!)}>Locate on map</button>}</div>
     </article>)}

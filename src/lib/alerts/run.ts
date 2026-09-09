@@ -1,3 +1,7 @@
+import { createHash } from 'node:crypto';
+import { quotes } from '../dashboard/finance';
+import { weatherAlerts, resolveGeometry, type WeatherAlert } from '../dashboard/weather';
+import type { MarketSpec, WeatherSpec } from './types';
 /**
  * ═══════════════════════════════════════════════════════════════
  *  VANTAGE — Evaluator core
@@ -11,7 +15,7 @@
 import { db } from '../db';
 import { validateRule } from './validation';
 import { evaluateRule, severityFor, type FeedSnapshot } from './evaluate';
-import { claimNewKeys, listRules, markFired, recordAlert, recordDelivery } from './store';
+import { claimNewKeys, listRules, markFired, recordAlert, recordDelivery, reconcileWeatherHistory } from './store';
 import { channelStatus, dispatchAlert } from './dispatch';
 import { detectAnomaly } from '../anomaly';
 import { historyFor, inCooldown, markAlerted, pruneCounts, recordCount } from '../anomaly-store';
@@ -42,12 +46,15 @@ export async function runEvaluation(snapshot: FeedSnapshot): Promise<FiredAlert[
       const matches = [...new Map(evaluateRule(rule, snapshot).map(m => [m.key, m])).values()];
       // Claim and persist ALL matches atomically, before making any network call.
       alerts = db().transaction(() => {
+        if (!(db().prepare('SELECT enabled FROM watch_rules WHERE id = ?').get(rule.id) as {enabled:number} | undefined)?.enabled) return [];
         const fresh = new Set(claimNewKeys(rule.id, matches.map(m => m.key)));
-        return matches.filter(m => fresh.has(m.key)).map(match => recordAlert({
+        const saved = matches.filter(m => fresh.has(m.key)).map(match => recordAlert({
           ruleId: rule.id, title: `${rule.name} — ${match.label}`,
-          body: `Watch "${rule.name}" matched a new ${match.layer} entity: ${match.label}.`,
+          body: rule.kind === 'market' || rule.kind === 'weather' ? `${match.label}\n${String(match.record.instruction || '')}` : `Watch "${rule.name}" matched a new ${match.layer} entity: ${match.label}.`,
           severity: severityFor(match), lat: match.lat, lng: match.lng, payload: match.record,
         }));
+        if (saved.length && rule.kind === 'market') db().prepare('UPDATE watch_rules SET enabled = 0 WHERE id = ?').run(rule.id);
+        return saved;
       })();
     } catch (error) {
       console.error(`[VANTAGE] skipping invalid/failed watch ${rule.id}:`, error);
@@ -167,7 +174,7 @@ function selfOrigin(): string {
  * loopback. Each feed fails independently — one dead upstream must not stop
  * the rest of the evaluation.
  */
-export async function collectSnapshot(): Promise<FeedSnapshot> {
+export async function collectSnapshot(extraRules: import('./types').WatchRule[] = [], coreOnly = false): Promise<FeedSnapshot> {
   const origin = selfOrigin();
   const snapshot: FeedSnapshot = {};
   const counts: Record<string, number> = {};
@@ -191,6 +198,10 @@ export async function collectSnapshot(): Promise<FeedSnapshot> {
     })
   );
 
+  if (!coreOnly) {
+    const personal = await Promise.all([collectMarketSnapshot(extraRules), collectWeatherSnapshot(extraRules)]);
+    Object.assign(snapshot, ...personal);
+  }
   layerCounts = counts;
   return snapshot;
 }
@@ -232,4 +243,38 @@ export async function runAnomalyCheck(counts: Record<string, number>, now = Date
 
   pruneCounts(now);
   return firedCount;
+}
+
+export async function collectMarketSnapshot(extraRules: import('./types').WatchRule[] = []): Promise<FeedSnapshot> {
+  const snapshot: FeedSnapshot = {};
+  const active = [...listRules(), ...extraRules].filter(r => r.enabled);
+  const symbols = [...new Set(active.filter(r => r.kind === 'market').map(r => (r.spec as MarketSpec).symbol))];
+  if (symbols.length) {
+    const results = await quotes(symbols);
+    snapshot.personal_quotes = results.filter(r => r.status === 'ready' && r.data).map(r => ({ ...r.data!, receivedAt: r.receivedAt }));
+  }
+  return snapshot;
+}
+
+export async function collectWeatherSnapshot(extraRules: import('./types').WatchRule[] = []): Promise<FeedSnapshot> {
+  const snapshot: FeedSnapshot = {};
+  const active = [...listRules(), ...extraRules].filter(r => r.enabled);
+  const weatherRules = active.filter(r => r.kind === 'weather');
+  if (weatherRules.length && !extraRules.length) {
+    const national = await weatherAlerts();
+    if (national.status === 'ready' && national.data) reconcileWeatherHistory(new Set(national.data.map(a => a.id)));
+  }
+  const alerts = new Map<string, WeatherAlert>();
+  for (const rule of weatherRules) {
+    const spec = rule.spec as WeatherSpec;
+    const result = await weatherAlerts(spec.place);
+    if (result.status !== 'ready') continue;
+    for (let alert of result.data ?? []) {
+      if (!spec.place) alert = await resolveGeometry(alert);
+      const previous = alerts.get(alert.id);
+      alerts.set(alert.id, { ...alert, geometry: alert.geometry || previous?.geometry || null, placeIds: [...new Set([...(previous?.placeIds ?? []), ...(spec.place ? [spec.place.id] : [])])] });
+    }
+  }
+  if (weatherRules.length) snapshot.weather_alerts = [...alerts.values()].map(a => ({ ...a, revisionKey: 'weather:' + a.id + ':' + createHash('sha256').update(JSON.stringify([a.event,a.severity,a.expires,a.instruction,a.geometry])).digest('hex') }));
+  return snapshot;
 }

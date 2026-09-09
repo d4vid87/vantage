@@ -6,6 +6,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Bot, Bell, Share2, FileText, HeartPulse, Bookmark } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
+import DashboardEnhancements from '@/components/DashboardEnhancements';
+import { EMPTY_GLOBE } from '@/lib/dashboard/globe';
 import ScmPanel from '@/components/ScmPanel';
 import SearchBar from '@/components/SearchBar';
 import DirectionsBar, { type RouteResult, type LiveLocation } from '@/components/DirectionsBar';
@@ -278,6 +280,7 @@ export default function Dashboard() {
   const [mapCenter, setMapCenter] = useState<{ lat: number; lng: number; bounds?: { west: number; south: number; east: number; north: number } } | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'layers'|'markets'|'intel'|'search'|'recon'|'remote'|'ops'|null>(null);
+  const [globeEnhancements, setGlobeEnhancements] = useState(EMPTY_GLOBE);
   const [mapProjection, setMapProjection] = useState<'globe'|'mercator'>('globe');
   const [mapStyle, setMapStyle] = useState<'dark'|'satellite'>('dark');
   const [sweepData, setSweepData] = useState<any>(null);
@@ -490,6 +493,11 @@ export default function Dashboard() {
       const res = await fetch(`/api/region-dossier?lat=${coords.lat}&lng=${coords.lng}`);
       if (res.ok) setRegionDossier(await res.json());
     } catch (e) { console.warn('[VANTAGE] Suppressed error:', e instanceof Error ? e.message : e); } finally { setDossierLoading(false); }
+  }, []);
+  useEffect(() => {
+    const open = () => setShowFeedHealth(true);
+    window.addEventListener('vantage-feed-health', open);
+    return () => window.removeEventListener('vantage-feed-health', open);
   }, []);
   // Entity click handler (hoisted from JSX to comply with Rules of Hooks - Fixes #113)
   const handleEntityClick = useCallback((entity: any) => {
@@ -1018,9 +1026,11 @@ export default function Dashboard() {
         <VantageMap 
           key={vantageTheme}
           data={mapData}
-          activeLayers={activeLayers} 
+          enhancements={globeEnhancements}
+          activeLayers={globeEnhancements.mode === 'live' ? activeLayers : Object.fromEntries(Object.entries(activeLayers).map(([k,v]) => [k, ['terrain_3d','day_night'].includes(k) ? v : false]))}
           projection={mapProjection} 
           mapStyle={mapStyle === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : 'dark'} 
+          feedStatuses={feedStatuses}
           onEntityClick={handleEntityClick} 
           onMouseCoords={handleMouseCoords} 
           onRightClick={handleRightClick} 
@@ -1050,6 +1060,8 @@ export default function Dashboard() {
           aircraftAirports={aircraftAirports}
         />
       </ErrorBoundary>
+
+      <DashboardEnhancements lowPower={lowPower} active={activeLayers} camera={{lat:mapView.latitude,lng:mapView.longitude,zoom:mapView.zoom}} projection={mapProjection} areas={drawnPolygons} onGlobe={setGlobeEnhancements} onLocate={p=>setFlyToLocation({...p,zoom:8,ts:Date.now()})} onPreset={p=>{setActiveLayers(prev=>Object.fromEntries(Object.keys(prev).map(k=>[k,p.layers.includes(k)])) as typeof prev);setMapProjection(p.projection);setFlyToLocation({lat:p.lat,lng:p.lng,zoom:p.zoom,ts:Date.now()});}} />
 
       {/* ── DIRECTIONS — opens beside the right-hand tool rail ── */}
       <div
@@ -1223,9 +1235,13 @@ export default function Dashboard() {
       <SavedViewsPanel
         open={showSavedViews}
         onClose={() => setShowSavedViews(false)}
-        currentLayers={Object.entries(activeLayers).filter(([, on]) => on).map(([k]) => k)}
+        currentLayers={[...Object.entries(activeLayers).filter(([, on]) => on).map(([k]) => k), ...globeEnhancements.visible]}
+        currentStyles={globeEnhancements.styles}
+        projection={mapProjection}
         currentCamera={{ lat: mapView.latitude, lng: mapView.longitude, zoom: mapView.zoom }}
         onApply={(v) => {
+          if (v.projection) setMapProjection(v.projection);
+          window.dispatchEvent(new CustomEvent('vantage-apply-globe-preset', {detail:v}));
           setActiveLayers(prev => Object.fromEntries(Object.keys(prev).map(k => [k, v.layers.includes(k)])) as typeof prev);
           setFlyToLocation({ lat: v.lat, lng: v.lng, zoom: v.zoom, ts: Date.now() });
         }}

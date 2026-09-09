@@ -18,8 +18,9 @@ export async function POST(request: NextRequest) {
     const input = await validateWatchInput(await request.json());
     const action = request.nextUrl.searchParams.get('action');
     if (action === 'preview') {
-      const snapshot = await collectSnapshot();
-      const matches = evaluateRule({ ...input, id: 'preview', enabled: true, createdAt: '', lastFiredAt: null }, snapshot);
+      const preview = { ...input, id: 'preview', enabled: true, createdAt: '', lastFiredAt: null };
+      const snapshot = await collectSnapshot([preview]);
+      const matches = evaluateRule(preview, snapshot);
       return NextResponse.json({ count: matches.length, matches: matches.slice(0, 10).map(m => ({ label: m.label, layer: m.layer })), availableLayers: Object.keys(snapshot) });
     }
     if (action === 'test') {

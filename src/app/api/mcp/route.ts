@@ -76,7 +76,7 @@ function buildServer(): McpServer {
     'Create a watchlist rule. This writes to the instance and can send outbound notifications — confirm with the operator before calling.',
     {
       name: z.string(),
-      kind: z.enum(['aoi', 'entity', 'threshold']),
+      kind: z.enum(['aoi', 'entity', 'threshold', 'market', 'weather']),
       spec: z.record(z.string(), z.unknown()).describe('Rule body: geometry for aoi, match for entity, field/op/value for threshold'),
       channels: z.array(z.enum(['discord', 'ntfy', 'email', 'webhook'])).default([]),
       webhookUrl: z.string().optional(),

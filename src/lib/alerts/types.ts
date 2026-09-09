@@ -1,6 +1,9 @@
 /** Shared alert / watchlist shapes. */
 
-export type WatchKind = 'aoi' | 'entity' | 'threshold';
+export type WatchKind = 'aoi' | 'entity' | 'threshold' | 'market' | 'weather';
+
+export interface MarketSpec { symbol: string; field: 'price' | 'changePercent'; comparator: 'above' | 'below'; threshold: number }
+export interface WeatherSpec { place?: import('../dashboard/types').Place; ring?: number[][]; events: string[] }
 
 export type Channel = 'discord' | 'ntfy' | 'email' | 'webhook';
 
@@ -26,7 +29,7 @@ export interface ThresholdSpec {
   bbox?: { west: number; south: number; east: number; north: number };
 }
 
-export type WatchSpec = AoiSpec | EntitySpec | ThresholdSpec;
+export type WatchSpec = AoiSpec | EntitySpec | ThresholdSpec | MarketSpec | WeatherSpec;
 
 export interface WatchRule {
   id: string;
