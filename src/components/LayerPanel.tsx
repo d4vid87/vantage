@@ -1,13 +1,11 @@
 'use client';
 
-import { memo, useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  Plane, Satellite, Sun, AlertTriangle, Camera,
-  CloudLightning, Ship, Network, Database, Ghost,
-  Flame, Tv, Radio, Mountain, Anchor, Megaphone, SlidersHorizontal, Crosshair
-} from 'lucide-react';
+import { memo, useState, useRef } from 'react';
+import { motion } from 'framer-motion';
+import {Network, Plane, Ship, Satellite, Camera, CloudLightning, AlertTriangle, Crosshair, Megaphone, Sun, Layers, Search, X} from 'lucide-react';
 import StyleStudio from './StyleStudio';
+import { usePanel } from '@/hooks/usePanel';
+import { toggleLayerSelection } from '@/lib/layer-selection';
 
 interface LayerPanelProps {
   data: any;
@@ -48,6 +46,8 @@ export const LAYER_GROUPS: LayerGroupDef[] = [
     icon: Network,
     layers: [
       { key: 'sdk_sea', label: 'Maritime Lines', dataKey: 'sdk_entities' },
+      { key: 'sdk_air', label: 'Aviation Links', dataKey: '' },
+      { key: 'sdk_naval', label: 'Intelligence Links', dataKey: '' },
     ],
   },
   {
@@ -115,6 +115,7 @@ export const LAYER_GROUPS: LayerGroupDef[] = [
     layers: [
       { key: 'infrastructure', label: 'Nuclear Facilities', dataKey: 'infrastructure' },
       { key: 'global_incidents', label: 'Global Incidents', dataKey: 'gdelt' },
+      { key: 'conflict_zones', label: 'Conflict Zones', dataKey: '' },
       { key: 'gdelt_events', label: 'GDELT Events', dataKey: 'gdelt_events' },
       { key: 'frontlines', label: 'Ukraine Frontline', dataKey: 'frontlines' },
     ],
@@ -196,349 +197,182 @@ function ToggleSwitch({ active }: { active: boolean }) {
   );
 }
 
-/**
- * The elbow that ties a sub-layer row to the layer above it. Indentation alone
- * reads as a typo at this size; the line is what says "this belongs to that".
- */
-function SubLayerStem() {
-  return (
-    <span
-      aria-hidden
-      className="pointer-events-none absolute left-[6px] top-0 h-1/2 w-[8px] rounded-bl-[3px] border-b border-l border-white/[0.14]"
-    />
-  );
-}
-
-function LayerPanel({ data, activeLayers, setActiveLayers, isMobile, theme = 'core', setTheme, capabilities = {} }: LayerPanelProps) {
-  const [hoveredGroup, setHoveredGroup] = useState<string | null>(null);
-  /**
-   * A pinned group stays open when the pointer leaves. Hover-only flyouts are
-   * fine to glance at and impossible to work in — reaching for a toggle at the
-   * far edge closes the thing you were reaching for.
-   */
-  const [pinnedGroup, setPinnedGroup] = useState<string | null>(null);
+function LayerPanel({
+  data,
+  activeLayers,
+  setActiveLayers,
+  isMobile,
+  theme = "core",
+  setTheme,
+  capabilities = {},
+}: LayerPanelProps) {
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeOnly, setActiveOnly] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
-
-  useEffect(() => {
-    if (!pinnedGroup) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPinnedGroup(null); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pinnedGroup]);
-
-  const toggle = (key: string) => setActiveLayers((prev: any) => ({ ...prev, [key]: !prev[key] }));
-
-  /** Switch a whole group at once — off if any are on, otherwise all on. */
-  const toggleGroup = (layers: LayerDef[]) => {
-    const anyOn = layers.some(l => activeLayers[l.key]);
-    setActiveLayers((prev: any) => {
-      const next = { ...prev };
-      for (const l of layers) next[l.key] = !anyOn;
-      return next;
-    });
-  };
-
-  /* Drop layers whose backing capability is not configured, then drop any group
-     left with nothing to show. */
-  const visibleGroups = LAYER_GROUPS.map(g => ({
+  const panel = usePanel<HTMLDivElement>(open && !isMobile, () =>
+    setOpen(false),
+  );
+  const groups = LAYER_GROUPS.map((g) => ({
     ...g,
-    layers: g.layers.filter(l => !l.requires || capabilities[l.requires]),
-  })).filter(g => g.layers.length > 0);
-
-  const getCount = (dk: string, catKey?: string): number | null => {
-    if (!dk) return null;
-    if (catKey && data.category_counts) {
-      return data.category_counts[catKey] || 0;
-    }
-    let total = 0;
-    let found = false;
-    for (const k of dk.split(',')) {
-      if (data[k] && Array.isArray(data[k])) {
-        total += data[k].length;
-        found = true;
-      }
-    }
-    return found ? total : null;
-  };
-
-  /* ── MOBILE ── */
-  if (isMobile) {
-    return (
-      <div className="flex flex-col gap-5 py-2">
-        {visibleGroups.map((group) => (
-          <div key={group.label} className="flex flex-col gap-2">
-            <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/30 border-b border-white/[0.06] pb-1.5">
-              {group.fullLabel}
-            </div>
-            <div className="flex flex-col gap-1">
-              {group.layers.map((layer) => {
-                const isLayerActive = activeLayers[layer.key];
-                const count = getCount(layer.dataKey, layer.catKey);
-                const dormant = !!layer.parent && !activeLayers[layer.parent];
-                return (
-                  <button
-                    key={layer.key}
-                    onClick={() => toggle(layer.key)}
-                    aria-pressed={!!isLayerActive}
-                    className={`relative w-full flex items-center gap-3 py-2 rounded-md text-left hover:bg-white/[0.04] transition-colors ${layer.parent ? 'pl-[22px] pr-1' : 'px-1'} ${dormant ? 'opacity-40' : ''}`}
-                  >
-                    {layer.parent && <SubLayerStem />}
-                    <ToggleSwitch active={!!isLayerActive} />
-                    <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 transition-colors ${isLayerActive ? 'text-white/80' : 'text-white/40'}`}>
-                      {layer.label}
-                    </span>
-                    {count !== null && (
-                      <span className="text-[10px] font-mono tabular-nums text-white/25">
-                        {count.toLocaleString()}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-
-        {/* MOBILE STYLE STUDIO */}
-        <div className="flex items-center justify-between mt-2 pt-3 border-t border-white/[0.06] px-1">
-          <span className="text-[10px] font-mono tracking-[0.2em] text-white/25 uppercase">Style Studio</span>
-          <button
-            onClick={() => setStudioOpen(o => !o)}
-            aria-pressed={studioOpen}
-            className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
-            style={{
-              background: studioOpen ? 'var(--hover-accent)' : 'transparent',
-              boxShadow: studioOpen ? '0 0 12px var(--gold-glow)' : 'none',
-            }}
-          >
-            <SlidersHorizontal className="w-4 h-4" style={{ color: studioOpen ? 'var(--gold-primary)' : 'rgba(255,255,255,0.25)' }} />
-          </button>
+    layers: g.layers.filter(
+      (l) =>
+        (!l.requires || capabilities[l.requires]) &&
+        (!activeOnly || activeLayers[l.key]) &&
+        `${g.fullLabel} ${l.label}`
+          .toLowerCase()
+          .includes(query.toLowerCase().trim()),
+    ),
+  })).filter((g) => g.layers.length);
+  const count = LAYER_GROUPS.flatMap((g) => g.layers).filter(
+    (l) =>
+      !l.parent &&
+      activeLayers[l.key] &&
+      (!l.requires || capabilities[l.requires]),
+  ).length;
+  const toggle = (layer: LayerDef) =>
+    setActiveLayers((prev: Record<string, boolean>) =>
+      toggleLayerSelection(prev, [layer]),
+    );
+  const content = (
+    <>
+      <div className="layer-library-heading">
+        <div>
+          <h2>Map layers</h2>
+          <p>{count} enabled · your live picture</p>
         </div>
-        <AnimatePresence>
-          {studioOpen && <StyleStudio isMobile onClose={() => setStudioOpen(false)} />}
-        </AnimatePresence>
-
-        {/* MOBILE GHOST TOGGLE */}
-        {setTheme && (
-          <div className="flex items-center justify-between pt-3 border-t border-white/[0.06] px-1">
-            <span className="text-[10px] font-mono tracking-[0.2em] text-white/25 uppercase">Ghost Protocol</span>
-            <button
-              onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
-              className="w-8 h-8 rounded-full flex items-center justify-center transition-all"
-              style={{
-                background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.15)' : 'transparent',
-                boxShadow: theme === 'ghost' ? '0 0 12px rgba(179, 136, 255, 0.3)' : 'none',
-              }}
-            >
-              <Ghost className="w-4 h-4" style={{ color: theme === 'ghost' ? '#B388FF' : 'rgba(255,255,255,0.25)' }} />
-            </button>
-          </div>
+        {!isMobile && (
+          <button aria-label="Close layers" onClick={() => setOpen(false)}>
+            <X size={18} />
+          </button>
         )}
       </div>
-    );
-  }
-
-  /* ── DESKTOP ── */
-  return (
-    <motion.div
-      initial={{ x: -60, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      transition={{ type: 'spring', damping: 30, stiffness: 200, delay: 2.8 }}
-      className="absolute top-0 left-0 h-full w-[48px] flex flex-col items-center pt-24 pb-6 z-50 pointer-events-auto"
-      style={{
-        background: 'rgba(0,0,0,0.15)',
-        backdropFilter: 'blur(24px) saturate(1.2)',
-        WebkitBackdropFilter: 'blur(24px) saturate(1.2)',
-      }}
-    >
-      <div className="flex-1 flex flex-col items-center gap-1">
-        {visibleGroups.map((group) => {
-          /* Sub-layers modify a parent rather than draw anything of their own,
-             so they do not count towards the rail's reading. */
-          const counted = group.layers.filter(l => !l.parent);
-          const groupActive = counted.some(l => activeLayers[l.key]);
-          const isHovered = hoveredGroup === group.label;
-          const Icon = group.icon;
-
-          const activeCount = counted.filter(l => activeLayers[l.key]).length;
-          const isPinned = pinnedGroup === group.label;
-          const isOpen = isHovered || isPinned;
-
-          return (
-            <div
-              key={group.label}
-              className="relative flex items-center justify-center"
-              onMouseEnter={() => setHoveredGroup(group.label)}
-              onMouseLeave={() => setHoveredGroup(null)}
+      <label className="layer-search">
+        <Search size={17} />
+        <input
+          ref={searchRef}
+          data-panel-autofocus
+          aria-label="Search layers"
+          placeholder="Find a layer…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+        {query && (
+          <button aria-label="Clear layer search" onClick={() => {setQuery("");searchRef.current?.focus();}}>
+            <X size={15} />
+          </button>
+        )}
+      </label>
+      <div className="layer-filters">
+        <button aria-pressed={!activeOnly} onClick={() => setActiveOnly(false)}>
+          All layers
+        </button>
+        <button aria-pressed={activeOnly} onClick={() => setActiveOnly(true)}>
+          Enabled only
+        </button>
+      </div>
+      {!groups.length && (
+        <p className="layer-empty">
+          No matching layers. Try another search or choose All layers.
+        </p>
+      )}
+      {groups.map((group) => (
+        <section key={group.label} className="layer-category">
+          <header>
+            <group.icon className="size-4" />
+            <h3>{group.fullLabel}</h3>
+            <button
+              onClick={() =>
+                setActiveLayers((prev: Record<string, boolean>) =>
+                  toggleLayerSelection(prev, group.layers),
+                )
+              }
             >
-              {/* A real button, not a div: this is keyboard reachable, focusable
-                  and announced. Clicking pins the flyout open so it can be
-                  worked in rather than only glanced at. */}
+              {group.layers.some((l) => activeLayers[l.key]) ? "Hide" : "Show"}
+            </button>
+          </header>
+          {group.layers.map((layer) => {
+            const values = layer.dataKey.split(",").map((k) => data[k]);
+            const total =
+              layer.catKey && data.category_counts
+                ? data.category_counts[layer.catKey]
+                : values.some(Array.isArray)
+                  ? values.reduce(
+                      (n: number, v: unknown) =>
+                        n + (Array.isArray(v) ? v.length : 0),
+                      0,
+                    )
+                  : null;
+            return (
               <button
-                onClick={() => setPinnedGroup(isPinned ? null : group.label)}
-                aria-expanded={isOpen}
-                aria-label={`${group.fullLabel}${activeCount ? ` — ${activeCount} active` : ''}`}
-                title={group.fullLabel}
-                className="relative w-10 h-10 flex items-center justify-center cursor-pointer rounded-lg transition-all duration-300 focus:outline-none focus-visible:ring-1 focus-visible:ring-white/40"
-                style={{
-                  background: isPinned
-                    ? 'rgba(255,255,255,0.10)'
-                    : isHovered ? 'rgba(255,255,255,0.05)' : 'transparent',
-                }}
+                key={layer.key}
+                className={
+                  "layer-choice" + (layer.parent ? " layer-child" : "")
+                }
+                aria-pressed={!!activeLayers[layer.key]}
+                onClick={() => toggle(layer)}
+                title={
+                  layer.parent && !activeLayers[layer.parent]
+                    ? "Enabling also turns on the parent layer"
+                    : undefined
+                }
               >
-                <Icon
-                  className="transition-all duration-300"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    color: groupActive
-                      ? 'rgba(255,255,255,0.75)'
-                      : isOpen
-                        ? 'rgba(255,255,255,0.45)'
-                        : 'rgba(255,255,255,0.22)',
-                    filter: groupActive ? 'drop-shadow(0 0 4px rgba(255,255,255,0.3))' : 'none',
-                  }}
-                />
-
-                {/* How many layers in this group are live. Without it the rail
-                    gives no reading at all until each icon is hovered in turn. */}
-                {activeCount > 0 && (
-                  <span
-                    className="absolute top-1 right-1 min-w-[13px] h-[13px] px-[3px] rounded-full flex items-center justify-center text-[9px] font-mono tabular-nums leading-none"
-                    style={{
-                      background: 'rgba(0,229,255,0.9)',
-                      color: '#04040A',
-                      boxShadow: '0 0 6px rgba(0,229,255,0.5)',
-                    }}
-                  >
-                    {activeCount}
-                  </span>
+                <ToggleSwitch active={!!activeLayers[layer.key]} />
+                <span>{layer.label}</span>
+                {total != null && (
+                  <small title="Records received, not necessarily visible in this view">
+                    {Number(total).toLocaleString()}
+                  </small>
                 )}
               </button>
-
-              {/* Flyout (LEFT side) */}
-              <AnimatePresence>
-                {isOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, x: -8, filter: 'blur(4px)' }}
-                    animate={{ opacity: 1, x: 0, filter: 'blur(0px)' }}
-                    exit={{ opacity: 0, x: -4, filter: 'blur(2px)' }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                    className="absolute left-[52px] top-1/2 -translate-y-1/2 min-w-[220px] rounded-xl p-3 z-[100] pointer-events-auto"
-                    style={{
-                      background: 'rgba(0,0,0,0.6)',
-                      backdropFilter: 'blur(40px) saturate(1.5)',
-                      WebkitBackdropFilter: 'blur(40px) saturate(1.5)',
-                      border: '1px solid rgba(255,255,255,0.06)',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                    }}
-                  >
-                    <div className="flex items-center gap-2 mb-2.5 pb-1.5 border-b border-white/[0.04]">
-                      <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/35 flex-1">
-                        {group.fullLabel}
-                      </span>
-                      {/* Switching eight satellite layers one at a time is the
-                          kind of thing that makes a panel feel unfinished. */}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleGroup(group.layers); }}
-                        className="px-1.5 py-0.5 rounded text-[10px] font-mono tracking-wider text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-                      >
-                        {activeCount > 0 ? 'NONE' : 'ALL'}
-                      </button>
-                      {isPinned && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setPinnedGroup(null); }}
-                          aria-label="Close"
-                          className="px-1.5 py-0.5 rounded text-[10px] font-mono text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex flex-col gap-0.5">
-                      {group.layers.map((layer) => {
-                        const isLayerActive = activeLayers[layer.key];
-                        const count = getCount(layer.dataKey, layer.catKey);
-                        const dormant = !!layer.parent && !activeLayers[layer.parent];
-
-                        return (
-                          <button
-                            key={layer.key}
-                            onClick={() => toggle(layer.key)}
-                            aria-pressed={!!isLayerActive}
-                            title={dormant ? 'Turn the layer above on to use this' : undefined}
-                            className={`relative w-full flex items-center gap-3 py-1.5 rounded-md hover:bg-white/[0.05] transition-colors cursor-pointer text-left focus:outline-none focus-visible:ring-1 focus-visible:ring-white/30 ${layer.parent ? 'pl-[22px] pr-1' : 'px-1'} ${dormant ? 'opacity-40' : ''}`}
-                          >
-                            {layer.parent && <SubLayerStem />}
-                            <ToggleSwitch active={!!isLayerActive} />
-                            <span className={`text-[11px] font-mono uppercase tracking-wider flex-1 transition-colors duration-200 ${isLayerActive ? 'text-white/70' : 'text-white/35'}`}>
-                              {layer.label}
-                            </span>
-                            {count !== null && (
-                              <span className={`text-[10px] font-mono tabular-nums transition-colors ${isLayerActive ? 'text-white/45' : 'text-white/20'}`}>
-                                {count.toLocaleString()}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Subtle separator */}
-      <div className="w-5 h-px bg-white/[0.06] my-2" />
-
-      {/* Style Studio */}
-      <button
-        onClick={() => setStudioOpen(o => !o)}
-        aria-pressed={studioOpen}
-        className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
-        style={{ background: studioOpen ? 'var(--hover-accent)' : 'transparent' }}
-        title="Style Studio"
-      >
-        <SlidersHorizontal
-          className="transition-all duration-500"
-          style={{
-            width: 15,
-            height: 15,
-            color: studioOpen ? 'var(--gold-primary)' : 'rgba(255,255,255,0.15)',
-            filter: studioOpen ? 'drop-shadow(0 0 6px var(--gold-glow))' : 'none',
-          }}
-        />
-      </button>
-      <AnimatePresence>
-        {studioOpen && <StyleStudio onClose={() => setStudioOpen(false)} />}
-      </AnimatePresence>
-
-      {/* Ghost Protocol Toggle */}
-      {setTheme && (
+            );
+          })}
+        </section>
+      ))}
+      <div className="layer-personalize">
         <button
-          onClick={() => setTheme(theme === 'core' ? 'ghost' : 'core')}
-          className="w-10 h-10 flex items-center justify-center rounded-lg transition-all duration-500 cursor-pointer"
-          style={{
-            background: theme === 'ghost' ? 'rgba(179, 136, 255, 0.1)' : 'transparent',
-          }}
-          title="Ghost Protocol"
+          aria-expanded={studioOpen}
+          onClick={() => setStudioOpen((v) => !v)}
         >
-          <Ghost
-            className="transition-all duration-500"
-            style={{
-              width: 15,
-              height: 15,
-              color: theme === 'ghost' ? '#B388FF' : 'rgba(255,255,255,0.15)',
-              filter: theme === 'ghost' ? 'drop-shadow(0 0 6px rgba(179, 136, 255, 0.5))' : 'none',
-            }}
-          />
+          Map appearance
         </button>
+        {setTheme && (
+          <button
+            aria-pressed={theme === "ghost"}
+            onClick={() => setTheme(theme === "core" ? "ghost" : "core")}
+          >
+            Violet theme
+          </button>
+        )}
+      </div>
+      {studioOpen && (
+        <StyleStudio isMobile onClose={() => setStudioOpen(false)} />
       )}
-    </motion.div>
+    </>
+  );
+  if (isMobile) return <div className="layer-library-mobile">{content}</div>;
+  return (
+    <div className="layer-launcher">
+      <button
+        className="layer-launch-button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <Layers size={18} />
+        Layers<span>{count}</span>
+      </button>
+      {open && (
+        <div
+          className="layer-library"
+          ref={panel}
+          role="dialog"
+          aria-label="Map layers"
+        >
+          {content}
+        </div>
+      )}
+    </div>
   );
 }
-
 export default memo(LayerPanel);

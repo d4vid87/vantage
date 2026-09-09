@@ -2270,7 +2270,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
 
         // Individual live conflict events (scatter dots across conflict zones)
         const eventFeatures = (conflictData.liveEvents || [])
-          .filter((e: any) => e.lat && e.lng)
+          .filter((e: any) => Number.isFinite(e.lat) && Number.isFinite(e.lng))
           .map((e: any) => ({
             type: 'Feature' as const,
             geometry: { type: 'Point' as const, coordinates: [e.lng, e.lat] },
@@ -2296,7 +2296,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
         const fallbackFeatures = FALLBACK_ZONES.map(z => ({
           type: 'Feature' as const,
           geometry: { type: 'Point' as const, coordinates: [z.lng, z.lat] },
-          properties: { label: z.label, severity: z.severity, description: z.description, sourceUrl: z.sourceUrl },
+          properties: { label: "REFERENCE: " + z.label, severity: z.severity, description: "Live source unavailable. Static reference marker. " + z.description, sourceUrl: z.sourceUrl },
         }));
         setGeo('conflict-zones', fallbackFeatures);
       }
@@ -2337,7 +2337,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     setVis(['choke-glow','choke-dots','choke-label'], activeLayers.maritime);
     setVis(['ship-dots','ship-label'], activeLayers.maritime);
     setVis(['news-glow','news-dots','news-label'], activeLayers.live_news);
-    setVis(['conflict-icons'], activeLayers.conflict_zones !== false);
+    setVis(['conflict-icons'], !!activeLayers.conflict_zones);
 
     setVis(['balloon-dots','balloon-label'], activeLayers.balloons);
     setVis(['rad-glow','rad-dots','rad-label'], activeLayers.radiation);

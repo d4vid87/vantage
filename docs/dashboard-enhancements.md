@@ -58,3 +58,11 @@ The implementation preserves the existing data volume and uses no schema replace
 Read-only live checks returned NWS warnings, RainViewer past frames, NHC geometry, and a 64-point Open-Meteo forecast grid. Finnhub is not configured on the development installation: live free-account quote, news, and financial endpoint entitlements still require your server key. No credentials were exported and no external alert was sent.
 
 A headless Chromium stress check with 10,000 synthetic static points completed without browser errors. Across two alternating passes, p95 frame times were 66.7/83.4 ms without clustering and 83.4/66.7 ms with clustering. This is a variable software-rendered environment, not proof of a speed gain or the plan's ordinary-interaction regression target. Native clustering improves inspectability; benchmark on the deployment GPU before making performance claims. Existing low-power behavior remains available, and new ticker/radar animation pauses in low power or reduced motion.
+
+## Streamlined workspace
+
+The desktop layer library replaces hover flyouts with searchable, clickable controls, an enabled-only filter, and per-group actions. Enabling a child overlay also enables its parent. Conflict Zones and SDK link overlays have explicit controls; conflict markers no longer bypass the layer selection or history mode.
+
+The Workspace dock shows common actions first; **More** exposes every existing tool with a visible label. Opening a personal dashboard closes competing workspace panels, and opening a workspace tool closes that dashboard. **Overview** and the R shortcut return to a whole-Earth view without changing selected layers. Browser modifier shortcuts and editable text no longer trigger map shortcuts. Feed request failures are visible above retained data, with a refresh action.
+
+Panels use readable contrast, larger controls, stable positioning, and mobile bottom sheets. Layer search receives keyboard focus on opening and keeps focus when cleared, so Escape closes it reliably. The globe, projections, terrain, original feeds, and investigation tools remain available.

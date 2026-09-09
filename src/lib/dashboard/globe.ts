@@ -36,6 +36,7 @@ export const SOURCE_GROUPS: Record<string, string[]> = {
   infrastructure: ["infrastructure"],
   maritime: ["maritime", "maritime-ships", "maritime-choke"],
   global_incidents: ["gdelt"],
+  conflict_zones: ["conflict-zones"],
   live_news: ["live-news"],
   radiation: ["radiation"],
   air_quality: ["air-quality"],

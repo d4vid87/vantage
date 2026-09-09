@@ -43,6 +43,8 @@ const collection = (
   features,
 });
 interface Props {
+  onPanelOpen: () => void;
+  onOverview: () => void;
   lowPower?: boolean;
   active: Record<string, boolean>;
   camera: {
@@ -70,6 +72,8 @@ function FeedStatus({ feed }: { feed: Feed<unknown> | null }) {
   );
 }
 export default function DashboardEnhancements({
+  onPanelOpen,
+  onOverview,
   lowPower = false,
   active,
   camera,
@@ -117,6 +121,14 @@ export default function DashboardEnhancements({
     [error, setError] = useState(""),
     [saving, setSaving] = useState(false),
     [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (panel) onPanelOpen();
+  }, [panel, onPanelOpen]);
+  useEffect(() => {
+    const close = () => setPanel(null);
+    window.addEventListener("vantage-close-dashboard", close);
+    return () => window.removeEventListener("vantage-close-dashboard", close);
+  }, []);
   const panelRef = usePanel<HTMLDivElement>(!!panel, () => setPanel(null));
   const [visible, setVisible] = useState<string[]>([]),
     [clusters, setClusters] = useState(true),
@@ -513,6 +525,14 @@ export default function DashboardEnhancements({
     <div className="enh-root">
       <div className="enh-bar">
         <button
+          className="overview-button"
+          onClick={onOverview}
+          title="Show the whole Earth without changing your layers"
+        >
+          ◎ Overview
+        </button>
+        <button
+          aria-expanded={panel === "finance"}
           onClick={() => setPanel(panel === "finance" ? null : "finance")}
         >
           Stocks
@@ -552,12 +572,13 @@ export default function DashboardEnhancements({
           )}
         </div>
         <button
+          aria-expanded={panel === "weather"}
           onClick={() => setPanel(panel === "weather" ? null : "weather")}
         >
           Weather
         </button>
         <button onClick={() => setPanel(panel === "globe" ? null : "globe")}>
-          Globe controls
+          Globe
         </button>
       </div>
       {panel && (
@@ -612,10 +633,38 @@ export default function DashboardEnhancements({
                 aria-pressed={panel === k}
                 onClick={() => setPanel(k)}
               >
-                {k}
+                {
+                  {
+                    finance: "Stocks",
+                    weather: "Weather",
+                    globe: "Globe",
+                    setup: "Settings",
+                  }[k]
+                }
               </button>
             ))}
           </nav>
+          {[
+            ...new Set(
+              [
+                quoteFeed.error,
+                companyFeed.error,
+                companyNews.error,
+                marketNews.error,
+                forecastFeed.error,
+                warnings.error,
+                placeWarnings.error,
+                radarFeed.error,
+                hurricaneFeed.error,
+                gridFeed.error,
+                rulesFeed.error,
+              ].filter(Boolean),
+            ),
+          ].map((message) => (
+            <p key={message} role="alert" className="dashboard-error">
+              {message} · Retained data may be outdated. Use Refresh to retry.
+            </p>
+          ))}
           {(error || settingsFeed.error) && (
             <p role="alert">
               {error || settingsFeed.error}{" "}

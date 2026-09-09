@@ -165,6 +165,7 @@ export default function Dashboard() {
   const [activeCamera, setActiveCamera] = useState<any>(null);
   const [spaceWeather, setSpaceWeather] = useState<any>(null);
   const [showLayers, setShowLayers] = useState(true);
+  const [moreTools, setMoreTools] = useState(false);
   const [showMarkets, setShowMarkets] = useState(false);
   const [showAlerts, setShowAlerts] = useState(false);
   const [showSpaceCam, setShowSpaceCam] = useState(false);
@@ -339,6 +340,7 @@ export default function Dashboard() {
     tor_exits: false,
     infrastructure: false,
     global_incidents: true,
+    conflict_zones: false,
     day_night: true,
     cables: true,
     sdk_sea: true,
@@ -433,9 +435,10 @@ export default function Dashboard() {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setShowCopilot(false); setShowWatchlists(false); setShowBriefs(false); setShowFeedHealth(false); setShowSavedViews(false); setShowRisk(false); }
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as Element)?.tagName)) return;
-      if (e.key === 'f' && !e.ctrlKey) {
+      if (e.key === 'Escape') { setShowCopilot(false); setShowWatchlists(false); setShowBriefs(false); setShowFeedHealth(false); setShowSavedViews(false); setShowRisk(false); setShowGraph(false); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowSpaceCam(false); setShowDrawing(false); setShowDesktopSearch(false); setShowRemote(false); setShowArcGIS(false); setShowDirections(false); }
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as Element)?.tagName) || (e.target as HTMLElement)?.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey || e.altKey) && e.key !== 'f') return;
+      if (e.key === 'f' && !e.ctrlKey && !e.metaKey && !e.altKey) {
         if (document.fullscreenElement) document.exitFullscreen();
         else document.documentElement.requestFullscreen();
       }
@@ -444,7 +447,7 @@ export default function Dashboard() {
       if (e.key === 'c') setShowScmPanel(p => !p);
       if (e.key === 'i') setShowIntel(p => !p);
       if (e.key === 's') { setShowDesktopSearch(p => !p); setShowIntel(false); setShowMarkets(false); setShowAlerts(false); setShowSpaceCam(false); }
-      if (e.key === 'r') setFlyToLocation({ lat: 20, lng: 0, ts: Date.now() });
+      if (e.key === 'r') setFlyToLocation({ lat: 20, lng: 0, zoom: 1.8, ts: Date.now() });
       if (e.key === 'g') setMapProjection(p => p === 'globe' ? 'mercator' : 'globe');
       if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
         e.preventDefault();
@@ -499,6 +502,11 @@ export default function Dashboard() {
     window.addEventListener('vantage-feed-health', open);
     return () => window.removeEventListener('vantage-feed-health', open);
   }, []);
+  const closeWorkspacePanels = useCallback((except = '') => {
+    const panels: Record<string, (value: boolean) => void> = {'AI analyst copilot':setShowCopilot, Watchlists:setShowWatchlists, 'Saved views':setShowSavedViews, 'Feed health':setShowFeedHealth, 'Intelligence briefs':setShowBriefs, Investigations:setShowGraph, 'Instability index':setShowRisk, 'OSINT Recon':setShowIntel, Markets:setShowMarkets, 'Live Alerts':setShowAlerts, Draw:setShowDrawing, Directions:setShowDirections, Search:setShowDesktopSearch, ArcGIS:setShowArcGIS, 'World Remote':setShowRemote, 'Live from Space':setShowSpaceCam};
+    for (const [name, setter] of Object.entries(panels)) if(name !== except) setter(false);
+  }, []);
+  const openPersonalDashboard = useCallback(() => closeWorkspacePanels(), [closeWorkspacePanels]);
   // Entity click handler (hoisted from JSX to comply with Rules of Hooks - Fixes #113)
   const handleEntityClick = useCallback((entity: any) => {
     if (entity?.type === 'cctv') setActiveCamera(entity);
@@ -1061,7 +1069,7 @@ export default function Dashboard() {
         />
       </ErrorBoundary>
 
-      <DashboardEnhancements lowPower={lowPower} active={activeLayers} camera={{lat:mapView.latitude,lng:mapView.longitude,zoom:mapView.zoom}} projection={mapProjection} areas={drawnPolygons} onGlobe={setGlobeEnhancements} onLocate={p=>setFlyToLocation({...p,zoom:8,ts:Date.now()})} onPreset={p=>{setActiveLayers(prev=>Object.fromEntries(Object.keys(prev).map(k=>[k,p.layers.includes(k)])) as typeof prev);setMapProjection(p.projection);setFlyToLocation({lat:p.lat,lng:p.lng,zoom:p.zoom,ts:Date.now()});}} />
+      <DashboardEnhancements onPanelOpen={openPersonalDashboard} onOverview={() => setFlyToLocation({lat:20,lng:0,zoom:1.8,ts:Date.now()})} lowPower={lowPower} active={activeLayers} camera={{lat:mapView.latitude,lng:mapView.longitude,zoom:mapView.zoom}} projection={mapProjection} areas={drawnPolygons} onGlobe={setGlobeEnhancements} onLocate={p=>setFlyToLocation({...p,zoom:8,ts:Date.now()})} onPreset={p=>{setActiveLayers(prev=>Object.fromEntries(Object.keys(prev).map(k=>[k,p.layers.includes(k)])) as typeof prev);setMapProjection(p.projection);setFlyToLocation({lat:p.lat,lng:p.lng,zoom:p.zoom,ts:Date.now()});}} />
 
       {/* ── DIRECTIONS — opens beside the right-hand tool rail ── */}
       <div
@@ -1146,7 +1154,7 @@ export default function Dashboard() {
       {/* ── MAP VIEW CONTROLS ── */}
       <motion.div
         initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 3.5 }}
-        className="absolute bottom-[75px] md:bottom-[100px] z-[200] flex flex-col gap-1.5 pointer-events-none"
+        className="map-view-controls absolute bottom-[75px] md:bottom-[100px] z-[200] flex flex-col gap-1.5 pointer-events-none"
         style={{ left: isMobile ? '12px' : '120px' }}
       >
         {/* Unified Control Strip */}
@@ -1284,46 +1292,52 @@ export default function Dashboard() {
 
 
       {/* ── RIGHT TOOL STRIP (desktop only — mobile uses bottom nav) ── */}
-      {!isMobile && <div className="absolute right-2 top-1/2 -translate-y-1/2 flex flex-col gap-2 z-[250] pointer-events-auto bg-black/40 backdrop-blur-sm p-1 rounded-full border border-white/5">
+      {!isMobile && <nav aria-label="Workspace tools" className={`tool-dock ${moreTools ? 'expanded' : ''}`} onClickCapture={e => {
+        const button = (e.target as HTMLElement).closest('button[aria-expanded]');
+        if (!button) return;
+        closeWorkspacePanels(button.getAttribute('aria-label') || '');
+        window.dispatchEvent(new Event('vantage-close-dashboard'));
+      }}>
+        <header><span>Workspace</span><button aria-label={moreTools ? 'Show fewer tools' : 'Show all tools'} onClick={() => setMoreTools(v=>!v)}>{moreTools ? 'Less' : 'More'}</button></header>
         {/* ── Analyst tooling: copilot, watchlists, link analysis ── */}
         <div className="relative group">
           <button onClick={() => setShowCopilot(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showCopilot ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="AI analyst copilot — ask questions about the live picture" aria-label="AI analyst copilot" aria-expanded={showCopilot}>
             <Bot className={`w-4 h-4 ${showCopilot ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">AI analyst copilot</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">COPILOT</span>
         </div>
 
         <div className="relative group">
           <button onClick={() => setShowWatchlists(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showWatchlists ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Watchlists — geofences, entity watches and alert delivery" aria-label="Watchlists" aria-expanded={showWatchlists}>
             <Bell className={`w-4 h-4 ${showWatchlists ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">Watchlists</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">WATCH</span>
         </div>
 
         <div className="relative group">
           <button onClick={() => { setShowRisk(v => !v); setActiveLayers((p: any) => ({ ...p, country_risk: !showRisk })); }} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showRisk ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Instability index — country risk with its component breakdown" aria-label="Instability index" aria-expanded={showRisk}>
             <Crosshair className={`w-4 h-4 ${showRisk ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">Instability index</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">RISK</span>
         </div>
 
         <div className="relative group">
           <button onClick={() => setShowSavedViews(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showSavedViews ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Saved views — bookmark layer sets and camera positions" aria-label="Saved views" aria-expanded={showSavedViews}>
             <Bookmark className={`w-4 h-4 ${showSavedViews ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">Saved views</span></button>
           <button onClick={() => setShowFeedHealth(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showFeedHealth ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Feed health — per-source fetch status" aria-label="Feed health" aria-expanded={showFeedHealth}>
             <HeartPulse className={`w-4 h-4 ${showFeedHealth ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">Feed health</span></button>
           <button onClick={() => setShowBriefs(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showBriefs ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Intelligence briefs — scheduled AI read-outs of the live picture" aria-label="Intelligence briefs" aria-expanded={showBriefs}>
             <FileText className={`w-4 h-4 ${showBriefs ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">Intelligence briefs</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">BRIEFS</span>
         </div>
 
         <div className="relative group">
           <button onClick={() => setShowGraph(v => !v)} className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-white/50 ${showGraph ? 'bg-[var(--cyan-primary)]/20' : 'hover:bg-white/10'}`} title="Investigations — link analysis and dossier export" aria-label="Investigations" aria-expanded={showGraph}>
             <Share2 className={`w-4 h-4 ${showGraph ? 'text-[var(--cyan-primary)]' : 'text-white/60'}`} />
-          </button>
+          <span className="tool-label">Investigations</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">GRAPH</span>
         </div>
 
@@ -1336,11 +1350,11 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[var(--cyan-primary)]"
               />
             )}
-          </button>
+          <span className="tool-label">OSINT Recon</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">RECON</span>
           <AnimatePresence>
             {showIntel && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-80">
                 <OsintPanel onSweepVisualize={setSweepData} onScanGeolocate={(target, data) => {
                   setScanTargets(prev => {
                     const existing = prev.filter(t => t.id !== target);
@@ -1362,11 +1376,11 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[#00E5FF]"
               />
             )}
-          </button>
+          <span className="tool-label">Live from Space</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">SPACE</span>
           <AnimatePresence>
             {showSpaceCam && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-80">
                 <SpaceCam />
               </motion.div>
             )}
@@ -1382,11 +1396,11 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[var(--gold-primary)]"
               />
             )}
-          </button>
+          <span className="tool-label">Markets</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">MARKETS</span>
           <AnimatePresence>
             {showMarkets && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-80">
                 <MarketsPanel data={data} spaceWeather={spaceWeather} />
               </motion.div>
             )}
@@ -1402,11 +1416,11 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[#FF3D3D]"
               />
             )}
-          </button>
+          <span className="tool-label">Live Alerts</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">ALERTS</span>
           <AnimatePresence>
             {showAlerts && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-80">
                 <LiveAlerts data={data} onLocate={(lat, lng) => setFlyToLocation({ lat, lng, ts: Date.now() })} onWatchFeed={(url, name) => { setLiveFeedUrl(url); setLiveFeedName(name); }} />
               </motion.div>
             )}
@@ -1422,7 +1436,7 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[#00E5FF]"
               />
             )}
-          </button>
+          <span className="tool-label">Draw</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">DRAW</span>
         </div>
 
@@ -1435,7 +1449,7 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[var(--gold-primary)]"
               />
             )}
-          </button>
+          <span className="tool-label">Directions</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">ROUTE</span>
         </div>
 
@@ -1448,11 +1462,11 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[var(--gold-primary)]"
               />
             )}
-          </button>
+          <span className="tool-label">Search</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">SEARCH</span>
           <AnimatePresence>
             {showDesktopSearch && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-80">
                 <SearchBar alwaysExpanded onLocate={(lat, lng, zoom) => { setFlyToLocation({ lat, lng, zoom, ts: Date.now() }); setShowDesktopSearch(false); }} />
               </motion.div>
             )}
@@ -1473,11 +1487,11 @@ export default function Dashboard() {
               />
             )}
             {arcgisLayers.length > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-[var(--gold-primary)] text-black text-[9px] font-mono font-bold leading-none px-0.5">{arcgisLayers.length}</span>}
-          </button>
+          <span className="tool-label">ArcGIS</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">ARCGIS</span>
           <AnimatePresence>
             {showArcGIS && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-[340px]">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-[340px]">
                 <div className="glass-panel p-3 max-h-[70vh] overflow-y-auto styled-scrollbar">
                   <ArcGISPanel
                     onImportLayer={(layer) => setArcgisLayers(prev => [...prev.filter(l => l.id !== layer.id), { ...layer, color: layer.color || '#D4AF37', visible: true, opacity: layer.opacity ?? 0.8 }])}
@@ -1506,11 +1520,11 @@ export default function Dashboard() {
                 className="absolute -right-1 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-current text-[var(--cyan-primary)]"
               />
             )}
-          </button>
+          <span className="tool-label">World Remote</span></button>
           <span className="absolute right-11 top-1/2 -translate-y-1/2 px-2 py-1 text-[9px] font-mono tracking-wider text-white/80 bg-black/80 backdrop-blur-sm rounded whitespace-nowrap opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity pointer-events-none">REMOTE</span>
           <AnimatePresence>
             {showRemote && (
-              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="absolute right-12 top-1/2 -translate-y-1/2 w-80">
+              <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 20 }} className="workspace-tool-panel absolute right-12 top-1/2 -translate-y-1/2 w-80">
                 <WorldRemote onClose={() => setShowRemote(false)} onPlaceOnMap={(devs) => {
                   setScanTargets(prev => {
                     const ids = new Set(prev.map((t: any) => t.id));
@@ -1526,7 +1540,7 @@ export default function Dashboard() {
         </div>
 
 
-      </div>}
+      </nav>}
 
       {/* ── LIVE FEED VIEWER OVERLAY ── */}
       <AnimatePresence>
