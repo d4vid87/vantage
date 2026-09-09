@@ -210,7 +210,7 @@ function connectAisStream() {
 connectAisStream();
 
 // --- SCM Integration: VesselAPI Hybrid Fallback (Satellite AIS) ---
-let lastVesselApiFetch = 0;
+const lastVesselApiFetch = 0;
 async function fetchVesselApiFallback() {
   // Mock data removed per user request. We only rely on real live stream data.
 }

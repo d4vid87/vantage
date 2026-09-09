@@ -79,6 +79,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body.', code: 'INVALID_BODY' }, { status: 400 });
   }
 
+  if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Invalid body.' }, { status: 400 });
   const messages = Array.isArray(body.messages) ? body.messages : [];
   if (messages.length === 0) {
     return NextResponse.json(
@@ -89,8 +90,8 @@ export async function POST(request: NextRequest) {
   // Trim to the most recent turns and cap each one so a runaway client can't
   // blow up the prompt (or the bill, on hosted providers).
   const history: ChatTurn[] = messages.slice(-MAX_HISTORY).map((m) => ({
-    role: m.role === 'assistant' ? 'assistant' : 'user',
-    content: String(m.content ?? '').slice(0, MAX_MESSAGE_CHARS),
+    role: m?.role === 'assistant' ? 'assistant' : 'user',
+    content: String(m?.content ?? '').slice(0, MAX_MESSAGE_CHARS),
   }));
 
   const context: IntelligenceContext = body.context ?? {
@@ -106,7 +107,9 @@ export async function POST(request: NextRequest) {
 
     // Resolve the first chunk before committing to a 200, so a provider that
     // is down still surfaces as a clean 503 rather than an empty stream.
-    const iterator = copilotStream(context, history, provider)[Symbol.asyncIterator]();
+    const abort = new AbortController();
+    const signal = AbortSignal.any([request.signal, abort.signal]);
+    const iterator = copilotStream(context, history, provider, signal)[Symbol.asyncIterator]();
     const first = await iterator.next();
 
     if (body.stream === false) {
@@ -128,8 +131,9 @@ export async function POST(request: NextRequest) {
     // the cleaned prose and any validated actions.
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({
+      cancel() { abort.abort(); },
       async start(controller) {
-        const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
+        const send = (obj: unknown) => !signal.aborted && controller.enqueue(encoder.encode(JSON.stringify(obj) + '\n'));
         let full = '';
         try {
           if (!first.done) {
@@ -152,7 +156,8 @@ export async function POST(request: NextRequest) {
         } catch (err) {
           send({ error: err instanceof Error ? err.message : 'stream failed' });
         } finally {
-          controller.close();
+          await iterator.return?.();
+          try { controller.close(); } catch { /* client disconnected */ }
         }
       },
     });

@@ -30,7 +30,7 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
 
   const camId = camera ? `CAM-${Math.abs(camera.lat * 10000).toFixed(0).padStart(4, '0').slice(-4)}-${Math.abs(camera.lng * 10000).toFixed(0).padStart(4, '0').slice(-4)}` : 'UNKNOWN';
 
-  
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
@@ -85,6 +85,8 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
 
   useEffect(() => {
     if (!camera) return;
+    // Reset the native HLS/image session and its status when the source changes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(false);
     setImageUrl(null);
@@ -167,13 +169,13 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.3, type: "spring", bounce: 0 }}
           className={`fixed z-[500] ${
-            fullscreen 
-              ? 'inset-2 md:inset-4' 
+            fullscreen
+              ? 'inset-2 md:inset-4'
               : 'bottom-[70px] left-2 right-2 md:bottom-6 md:right-6 md:left-auto md:w-[480px]'
           }`}
         >
           <div className="overflow-hidden h-full flex flex-col bg-black/85 backdrop-blur-xl border border-[var(--border-primary)]" style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.9), inset 0 0 30px rgba(0,0,0,0.8)' }}>
-            
+
             {/* Tactical Grid Overlay on background */}
             <div className="absolute inset-0 pointer-events-none opacity-20" style={{
               backgroundImage: 'linear-gradient(var(--border-secondary) 1px, transparent 1px), linear-gradient(90deg, var(--border-secondary) 1px, transparent 1px)',
@@ -207,18 +209,18 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
                     <p className="text-[9px] md:text-[9px] font-mono text-[var(--gold-primary)] uppercase tracking-wider opacity-80">{camera.city}, {camera.country} • SOURCE: {camera.source}</p>
                   </div>
                 </div>
-                
+
                 {/* Controls */}
                 <div className="flex items-center gap-1 flex-shrink-0 ml-3">
                   {streamType === 'jpg' && (
-                    <button 
+                    <button
                       onClick={() => {
                         const targetUrl = camera.feed_url || camera.stream_url;
                         if (targetUrl) {
                           const url = targetUrl.includes('?') ? `${targetUrl}&_t=${Date.now()}` : `${targetUrl}?_t=${Date.now()}`;
                           setImageUrl(url);
                         }
-                      }} 
+                      }}
                       className="p-1.5 rounded-sm bg-white/5 border border-white/10 hover:bg-[var(--gold-primary)]/20 hover:border-[var(--gold-primary)] transition-all" title="Refresh feed"
                     >
                       <RefreshCw className="w-3 h-3 text-[var(--text-secondary)] hover:text-[var(--gold-primary)]" />
@@ -276,9 +278,9 @@ export default function CameraViewer({ camera, onClose, onLocate }: CameraViewer
                 <ExternalLink className="w-6 h-6 mb-3 opacity-50" style={{ color: 'var(--gold-primary)' }} />
                 <p className="text-[11px] font-mono uppercase tracking-widest" style={{ color: 'var(--gold-primary)' }}>SECURE FEED ENCRYPTED</p>
                 <p className="text-[9px] font-mono text-[var(--text-muted)] mt-2 max-w-[80%] uppercase">This feed requires external clearance</p>
-                <a 
-                  href={externalFeedUrl} 
-                  target="_blank" 
+                <a
+                  href={externalFeedUrl}
+                  target="_blank"
                   rel="noopener noreferrer"
                   className="mt-4 px-4 py-2 rounded text-[10px] font-mono font-bold tracking-widest transition-all hover:bg-white/10"
                   style={{ border: '1px solid var(--border-primary)', color: 'var(--gold-primary)' }}

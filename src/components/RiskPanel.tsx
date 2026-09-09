@@ -50,6 +50,8 @@ export default function RiskPanel({ open, onClose, onSelect }: Props) {
     }
   }, []);
 
+  // Opening the panel starts a request and exposes its loading state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) load(); }, [open, load]);
 
   const missing = Object.entries(available).filter(([, ok]) => !ok).map(([k]) => k);

@@ -85,24 +85,31 @@ export async function register() {
   const briefAt = (process.env.VANTAGE_DAILY_BRIEF || '').trim();
   if (!briefAt) return;
 
-  const { generateDailyBrief, shouldRunBrief, getSetting, setSetting, BRIEF_LAST_RUN_KEY } =
+  const { generateDailyBrief, shouldRunBrief, getSetting, setSetting, briefClock, briefSchedule, BRIEF_LAST_RUN_KEY } =
     await import('./lib/brief');
 
+  const schedule = briefSchedule();
+  if (schedule.error) {
+    console.error(`[VANTAGE] daily brief disabled: ${schedule.error}`);
+    return;
+  }
+
   let briefing = false;
+  let retryAfter = 0;
   const briefTick = async () => {
-    if (briefing) return;
+    if (briefing || Date.now() < retryAfter) return;
     try {
       if (!shouldRunBrief(new Date(), briefAt, getSetting(BRIEF_LAST_RUN_KEY))) return;
       briefing = true;
       const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      // Claim the day before generating: a slow model must not let a second
-      // tick start a duplicate brief.
-      setSetting(BRIEF_LAST_RUN_KEY, today);
+      const today = briefClock(now).day;
       const { brief, delivered } = await generateDailyBrief();
+      setSetting(BRIEF_LAST_RUN_KEY, today);
+      retryAfter = 0;
       console.log(`[VANTAGE] daily brief ${brief.id} generated; delivery:`, delivered);
     } catch (err) {
-      console.error('[VANTAGE] daily brief failed:', err);
+      retryAfter = Date.now() + 5 * 60_000;
+      console.error('[VANTAGE] daily brief failed; retrying in 5 minutes:', err);
     } finally {
       briefing = false;
     }
@@ -110,5 +117,5 @@ export async function register() {
 
   const briefTimer = setInterval(briefTick, 60_000);
   if (typeof briefTimer.unref === 'function') briefTimer.unref();
-  console.log(`[VANTAGE] daily brief scheduled for ${briefAt} local time`);
+  console.log(`[VANTAGE] daily brief scheduled for ${briefAt} ${briefClock(new Date()).timeZone}`);
 }

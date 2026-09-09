@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { usePanel } from '@/hooks/usePanel';
 import { FileText, X, Loader2, Play, AlertTriangle } from 'lucide-react';
 
 interface Brief {
@@ -38,6 +39,8 @@ function renderMarkdown(md: string): string {
 }
 
 export default function BriefPanel({ open, onClose }: Props) {
+  const panel = usePanel<HTMLDivElement>(open, onClose);
+  const [schedule, setSchedule] = useState<{ at: string | null; timeZone: string; nextRun: string | null; enabled: boolean; error?: string | null } | null>(null);
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
@@ -49,7 +52,9 @@ export default function BriefPanel({ open, onClose }: Props) {
     try {
       const res = await fetch('/api/briefs');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Unable to load briefs');
       setBriefs(data.briefs ?? []);
+      setSchedule(data.schedule ?? null);
       setError(null);
     } catch {
       setError('Unable to load briefs');
@@ -58,6 +63,8 @@ export default function BriefPanel({ open, onClose }: Props) {
     }
   }, []);
 
+  // Opening the panel starts a request and exposes its loading state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { if (open) load(); }, [open, load]);
 
   const runNow = async () => {
@@ -85,10 +92,10 @@ export default function BriefPanel({ open, onClose }: Props) {
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
+        <motion.div ref={panel} role="dialog" aria-label="Intelligence briefs"
           initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }}
           className="gotham-panel"
-          style={{ position: 'absolute', top: 60, right: 12, width: 'min(460px, calc(100vw - 24px))', maxHeight: '76vh', zIndex: 40, display: 'flex', flexDirection: 'column' }}
+          style={{ position: 'absolute', top: 60, right: 12, width: 'min(460px, calc(100vw - 24px))', maxHeight: '76vh', zIndex: 900, display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, letterSpacing: '0.08em' }}>
@@ -99,10 +106,11 @@ export default function BriefPanel({ open, onClose }: Props) {
                 {running ? <Loader2 size={11} className="animate-spin" /> : <Play size={11} />}
                 {running ? 'GENERATING' : 'RUN NOW'}
               </button>
-              <button onClick={onClose} className="gotham-btn" style={{ padding: '2px 5px' }}><X size={12} /></button>
+              <button onClick={onClose} aria-label="Close briefs" className="gotham-btn" style={{ padding: '2px 5px' }}><X size={12} /></button>
             </div>
           </div>
 
+          {schedule && <p className="px-3 py-2 text-[11px]">{schedule.error ? schedule.error : schedule.at && schedule.enabled ? `Daily at ${schedule.at} (${schedule.timeZone}). Next due: ${schedule.nextRun ? new Date(schedule.nextRun).toLocaleString() : 'not scheduled'}.` : `Automatic brief disabled. Timezone: ${schedule.timeZone}.`}</p>}
           {error && (
             <div style={{ display: 'flex', gap: 6, alignItems: 'center', padding: '6px 10px', color: '#FCA5A5', fontSize: 10 }}>
               <AlertTriangle size={12} /> {error}

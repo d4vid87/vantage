@@ -1,4 +1,5 @@
 
+import { recordFailure, recordSuccess } from '@/lib/feed-health';
 import { NextResponse } from 'next/server';
 
 /**
@@ -15,7 +16,8 @@ export async function GET() {
     });
 
     if (!res.ok) {
-      return NextResponse.json({ earthquakes: [], error: 'USGS unavailable' });
+      recordFailure('earthquakes', `USGS HTTP ${res.status}`, false);
+      return NextResponse.json({ earthquakes: [], error: 'USGS unavailable' }, { status: 502 });
     }
 
     const data = await res.json();
@@ -40,6 +42,7 @@ export async function GET() {
       };
     });
 
+    recordSuccess('earthquakes', earthquakes.length);
     return NextResponse.json({
       earthquakes,
       total: earthquakes.length,
@@ -50,6 +53,7 @@ export async function GET() {
       },
     });
   } catch (error) {
+    recordFailure('earthquakes', error instanceof Error ? error.message : 'Fetch failed', false);
     console.error('Earthquake fetch error:', error);
     return NextResponse.json({ earthquakes: [], error: 'Failed to fetch earthquake data' }, { status: 500 });
   }

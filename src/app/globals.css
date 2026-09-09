@@ -2492,3 +2492,42 @@ input[type="range"]::-moz-range-thumb {
   border-radius: 4px;
   padding: 1px 5px;
 }
+
+/* Low-power preset: reduce UI animation work while retaining the map controls. */
+body[data-low-power="true"] *, body[data-low-power="true"] *::before, body[data-low-power="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Shared operator panels already use these classes; keep their controls legible. */
+.gotham-panel {
+  background: var(--bg-panel-solid);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px #0008;
+}
+.gotham-input {
+  min-width: 0;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.gotham-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+.gotham-btn:disabled { opacity: 0.5; cursor: default; }
+.gotham-panel :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--cyan-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--cyan-primary);
+}

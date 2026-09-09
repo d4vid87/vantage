@@ -7,6 +7,7 @@
  */
 
 import { getProvider, streamFrom, type LLMProvider } from './ai/provider';
+import { normalizeContext } from './ai/context';
 import { ACTIONS_PROMPT } from './ai/actions';
 
 /* ─────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ export interface CyberAlert {
 }
 
 export interface IntelligenceContext {
+  scope?: string;
   earthquakes: EarthquakeEvent[];
   news: NewsItem[];
   threats: ThreatEvent[];
@@ -140,10 +142,12 @@ State overall confidence level and key analytical gaps.
 
 Analyze the provided data thoroughly. Be specific — reference actual events, magnitudes, locations, and CVE IDs from the context.`;
 
-function serializeContext(context: IntelligenceContext): string {
+function serializeContext(input: IntelligenceContext): string {
+  const context = normalizeContext(input);
   const sections: string[] = [];
 
   sections.push(`[TIMESTAMP] ${context.timestamp}`);
+  if (context.scope) sections.push(`[COVERAGE] ${context.scope}`);
 
   if (context.earthquakes.length > 0) {
     sections.push(`\n[SEISMIC DATA — ${context.earthquakes.length} events]`);
@@ -151,7 +155,7 @@ function serializeContext(context: IntelligenceContext): string {
       const tsunamiFlag = eq.tsunami ? ' ⚠️TSUNAMI' : '';
       const alertFlag = eq.alert ? ` [ALERT:${eq.alert.toUpperCase()}]` : '';
       sections.push(
-        `  M${eq.magnitude} | ${eq.location} | ${eq.latitude.toFixed(2)},${eq.longitude.toFixed(2)} | Depth:${eq.depth}km | ${eq.timestamp}${tsunamiFlag}${alertFlag}`
+        `  [${eq.id}] M${eq.magnitude} | ${eq.location} | ${eq.latitude.toFixed(2)},${eq.longitude.toFixed(2)} | Depth:${eq.depth}km | ${eq.timestamp}${tsunamiFlag}${alertFlag}`
       );
     }
   }
@@ -161,7 +165,7 @@ function serializeContext(context: IntelligenceContext): string {
     for (const item of context.news.slice(0, 15)) {
       const coords = item.coords ? ` | GEO:${item.coords[0].toFixed(2)},${item.coords[1].toFixed(2)}` : '';
       sections.push(
-        `  RISK:${item.risk_score}/10 | ${item.source} | ${item.title}${coords} | ${item.published}`
+        `  [${item.id}] RISK:${item.risk_score}/10 | ${item.source} | ${item.title}${coords} | ${item.published}`
       );
     }
   }
@@ -170,7 +174,7 @@ function serializeContext(context: IntelligenceContext): string {
     sections.push(`\n[THREAT EVENTS — ${context.threats.length} active]`);
     for (const threat of context.threats.slice(0, 15)) {
       sections.push(
-        `  ${threat.severity} | ${threat.type} | ${threat.title} | ${threat.region} | ${threat.timestamp}`
+        `  [${threat.id}] ${threat.severity} | ${threat.type} | ${threat.title} | ${threat.region} | ${threat.timestamp}`
       );
     }
   }
@@ -280,12 +284,14 @@ export async function copilotAnswer(
 export async function* copilotStream(
   context: IntelligenceContext,
   history: ChatTurn[],
-  provider?: LLMProvider
+  provider?: LLMProvider,
+  signal?: AbortSignal
 ): AsyncIterable<string> {
   const llm = provider ?? (await getProvider());
   yield* streamFrom(llm, {
     system: COPILOT_SYSTEM,
     prompt: copilotPrompt(context, history),
     maxTokens: 2048,
+    signal,
   });
 }

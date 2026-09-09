@@ -10,6 +10,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { usePanel } from '@/hooks/usePanel';
+import type { MapFeedStatus } from '@/lib/map-feeds';
 import { HeartPulse, X, Loader2, RefreshCw, Download } from 'lucide-react';
 
 interface Feed {
@@ -25,6 +27,10 @@ interface Feed {
 interface Props {
   open: boolean;
   onClose: () => void;
+  browserFeeds?: MapFeedStatus[];
+  onRetry?: (key: string) => void;
+  lowPower?: boolean;
+  onLowPower?: (enabled: boolean) => void;
 }
 
 function ago(ts: number | null): string {
@@ -41,26 +47,43 @@ function dotColor(f: Feed): string {
   return '#F87171';
 }
 
-export default function FeedHealthPanel({ open, onClose }: Props) {
+export default function FeedHealthPanel({ open, onClose, browserFeeds = [], onRetry, lowPower, onLowPower }: Props) {
+  const panel = usePanel<HTMLDivElement>(open, onClose);
+  const [error, setError] = useState('');
+  const [checks, setChecks] = useState<{ name: string; ok: boolean; detail: string }[]>([]);
+  const [checking, setChecking] = useState(false);
+  const diagnose = async () => {
+    setChecking(true); setError('');
+    try {
+      const response = await fetch('/api/diagnostics');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Diagnostics failed.');
+      setChecks(data.checks);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Diagnostics failed.'); }
+    finally { setChecking(false); }
+  };
   const [feeds, setFeeds] = useState<Feed[]>([]);
   const [loading, setLoading] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
 
   const load = useCallback(async () => {
     setLoading(true);
+    setNow(Date.now());
     try {
       const res = await fetch('/api/feed-health');
       const data = await res.json();
-      setFeeds(data.feeds ?? []);
-    } catch { /* row list simply stays as it was */ } finally {
+      if (!res.ok) throw new Error(data.error || 'Unable to load feed health.');
+      setFeeds(data.feeds ?? []); setError('');
+    } catch { setError('Unable to load feed health.'); } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
     if (!open) return;
-    load();
+    const initial = setTimeout(load, 0);
     const t = setInterval(load, 30_000);
-    return () => clearInterval(t);
+    return () => { clearTimeout(initial); clearInterval(t); };
   }, [open, load]);
 
   const failing = feeds.filter(f => !f.ok);
@@ -68,10 +91,10 @@ export default function FeedHealthPanel({ open, onClose }: Props) {
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
+        <motion.div ref={panel} role="dialog" aria-label="Feed health"
           initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }}
           className="gotham-panel"
-          style={{ position: 'absolute', top: 60, right: 12, width: 'min(380px, calc(100vw - 24px))', maxHeight: '70vh', zIndex: 40, display: 'flex', flexDirection: 'column' }}
+          style={{ position: 'absolute', top: 60, right: 12, width: 'min(380px, calc(100vw - 24px))', maxHeight: '70vh', zIndex: 900, display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, letterSpacing: '0.08em' }}>
@@ -82,10 +105,21 @@ export default function FeedHealthPanel({ open, onClose }: Props) {
               <button onClick={load} className="gotham-btn" style={{ padding: '2px 5px' }} title="Refresh">
                 {loading ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
               </button>
-              <button onClick={onClose} className="gotham-btn" style={{ padding: '2px 5px' }}><X size={12} /></button>
+              <button onClick={onClose} aria-label="Close feed health" className="gotham-btn" style={{ padding: '2px 5px' }}><X size={12} /></button>
             </div>
           </div>
 
+          <div className="overflow-y-auto p-3 text-[12px] space-y-2">
+            <label className="block"><input type="checkbox" checked={!!lowPower} onChange={e => onLowPower?.(e.target.checked)} /> Low power: slower polling and reduced UI animations</label>
+            {error && <p role="alert" className="text-red-300">{error}</p>}
+            <strong>Map data freshness</strong>
+            {browserFeeds.map(f => <div key={f.key} className="border-b py-1">
+              <div className="flex justify-between gap-2"><span>{f.key.replaceAll('_', ' ')}</span><button aria-label={`Refresh ${f.key}`} disabled={f.loading} onClick={() => onRetry?.(f.key)}>{f.loading ? 'Loading…' : f.error ? 'Retry' : 'Refresh'}</button></div>
+              <p className={f.error ? 'text-amber-300' : 'opacity-70'}>{f.error ? `${f.lastSuccess ? 'Stale' : 'Unavailable'}: ${f.error}` : !f.lastSuccess ? 'Waiting for first response' : now - f.lastSuccess > (f.interval ?? Infinity) ? 'Refresh due' : 'Received successfully'} · Last received {ago(f.lastSuccess ?? null)}</p>
+            </div>)}
+            <button className="gotham-btn" disabled={checking} onClick={diagnose}>{checking ? 'Checking…' : 'Run setup checks'}</button>
+            {checks.map(c => <p key={c.name}><strong>{c.name}: {c.ok ? 'Ready' : 'Check'}</strong> — {c.detail}</p>)}
+            <strong>Upstream source health</strong>
           <div style={{ overflowY: 'auto', padding: '6px 10px', fontSize: 10.5, color: '#CBD5E1' }}>
             {feeds.length === 0 && (
               <div style={{ opacity: 0.6, padding: '6px 0' }}>
@@ -107,6 +141,7 @@ export default function FeedHealthPanel({ open, onClose }: Props) {
             ))}
           </div>
 
+          </div>
           <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', padding: '6px 10px' }}>
             <a href="/api/backup" download className="gotham-btn" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10, textDecoration: 'none' }}
                title="Consistent SQLite snapshot (rules, alerts, briefs, investigations)">

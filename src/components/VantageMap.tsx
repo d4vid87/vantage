@@ -1,5 +1,6 @@
-import { buildGeometry, closeRing, drawReducer, initialDrawState, measure, type DrawAction, type DrawMode, type DrawProgress, type DrawResult, type DrawState } from '@/lib/draw';
 'use client';
+
+import { buildGeometry, closeRing, drawReducer, initialDrawState, measure, type DrawAction, type DrawMode, type DrawProgress, type DrawResult, type DrawState } from '@/lib/draw';
 
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { Protocol as PmtilesProtocol } from 'pmtiles';
@@ -2996,7 +2997,7 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
   const drawCbRef = useRef({ onDrawComplete, onDrawProgress, onDrawCancel });
   /** Set by the drawing effect so on-screen buttons can dispatch into it. */
   const drawApplyRef = useRef<((a: DrawAction) => void) | null>(null);
-  drawCbRef.current = { onDrawComplete, onDrawProgress, onDrawCancel };
+  useEffect(() => { drawCbRef.current = { onDrawComplete, onDrawProgress, onDrawCancel }; }, [onDrawComplete, onDrawProgress, onDrawCancel]);
 
   // ── DRAWING MODE ──
   // A four-mode state machine over one set of map handlers.
@@ -3187,7 +3188,7 @@ function VantageMap({ data, activeLayers, onEntityClick, onMouseCoords, onRightC
   return (
     <>
       <div ref={containerRef} className="absolute inset-0 w-full h-full" />
-      {mapReady && mapRef.current && (
+      {mapReady && (
         <CctvPreviews
           mapRef={mapRef}
           active={!!activeLayers.cctv && !!activeLayers.cctv_previews}

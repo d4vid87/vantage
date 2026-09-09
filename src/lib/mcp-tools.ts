@@ -11,7 +11,7 @@
 import { listAlerts, listRules, createRule } from './alerts/store';
 import { listInvestigations } from './investigations';
 import { listBriefs } from './brief';
-import { validateHost } from './ssrf-guard';
+import { validateWatchInput } from './alerts/input';
 import { ALLOWED_LAYERS } from './ai/actions';
 import type { Channel, WatchKind } from './alerts/types';
 
@@ -111,24 +111,7 @@ export interface CreateRuleInput {
  * internal address.
  */
 export async function createWatchRule(input: CreateRuleInput): Promise<unknown> {
-  if (input.webhookUrl) {
-    let parsed: URL;
-    try {
-      parsed = new URL(input.webhookUrl);
-    } catch {
-      throw new Error('webhookUrl is not a valid URL');
-    }
-    const guard = await validateHost(parsed.hostname);
-    if (!guard.ok) throw new Error(`webhookUrl rejected: ${guard.reason}`);
-  }
-
-  return createRule({
-    name: input.name,
-    kind: input.kind,
-    spec: input.spec as never,
-    channels: input.channels,
-    webhookUrl: input.webhookUrl,
-  });
+  return createRule(await validateWatchInput(input));
 }
 
 export const readTools = { listAlerts, listRules, listInvestigations, listBriefs };

@@ -278,6 +278,14 @@ With the scheduler off, drive `POST /api/alerts/tick` from an external cron
 instead (send `x-vantage-tick-key` if `VANTAGE_TICK_SECRET` is set). With no
 body, the endpoint collects the snapshot server-side.
 
+### Daily briefs
+
+Set `VANTAGE_DAILY_BRIEF=07:00` and optionally
+`VANTAGE_BRIEF_TIMEZONE=America/Chicago` (otherwise the container timezone is used).
+The BRIEFS panel shows the next run. Generation failures retry after five minutes
+and preserve the previous successful baseline. `VANTAGE_SCHEDULER=off` disables
+scheduled briefs as well as watch evaluation.
+
 ### Backups
 
 ```bash

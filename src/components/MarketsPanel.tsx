@@ -1,5 +1,7 @@
 'use client';
 
+import { useHydrated } from '@/hooks/useHydrated';
+
 import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import dynamic from 'next/dynamic';
@@ -136,8 +138,7 @@ export default function MarketsPanel({ data, spaceWeather }: MarketsPanelProps) 
   const age = useFeedAge(markets.timestamp);
 
   // Ensure portal only renders on client
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useHydrated();
 
   // Fullscreen covers the map, so Escape has to get you out of it — closing
   // the chart first, since that is the nearer thing to dismiss.

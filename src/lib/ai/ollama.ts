@@ -19,11 +19,12 @@ export function createOllamaProvider(): LLMProvider {
   return {
     name: 'ollama',
     model,
-    async generate({ system, prompt, temperature, maxTokens }: GenerateOptions): Promise<string> {
+    async generate({ system, prompt, temperature, maxTokens, signal }: GenerateOptions): Promise<string> {
       let res: Response;
       try {
         res = await fetch(`${base}/api/chat`, {
           method: 'POST',
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model,
@@ -60,11 +61,12 @@ export function createOllamaProvider(): LLMProvider {
       return data.message?.content?.trim() ?? '';
     },
 
-    async *generateStream({ system, prompt, temperature, maxTokens }: GenerateOptions) {
+    async *generateStream({ system, prompt, temperature, maxTokens, signal }: GenerateOptions) {
       let res: Response;
       try {
         res = await fetch(`${base}/api/chat`, {
           method: 'POST',
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model,

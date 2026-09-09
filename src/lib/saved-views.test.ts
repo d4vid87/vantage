@@ -35,3 +35,10 @@ describe('removeView', () => {
     expect(removeView([view('a'), view('b')], 'a').map(v => v.name)).toEqual(['b']);
   });
 });
+
+it('imports valid views without silently accepting malformed coordinates', async () => {
+  const { importViews } = await import('./saved-views');
+  const incoming = [{ name: 'Home', lat: 1, lng: 2, zoom: 4, layers: ['earthquakes'], savedAt: 1 }];
+  expect(importViews(JSON.stringify(incoming), [])).toEqual(incoming);
+  expect(() => importViews(JSON.stringify([{ ...incoming[0], lat: 100 }]), incoming)).toThrow();
+});

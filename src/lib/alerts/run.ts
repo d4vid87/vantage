@@ -8,12 +8,14 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
+import { db } from '../db';
+import { validateRule } from './validation';
 import { evaluateRule, severityFor, type FeedSnapshot } from './evaluate';
 import { claimNewKeys, listRules, markFired, recordAlert, recordDelivery } from './store';
 import { channelStatus, dispatchAlert } from './dispatch';
 import { detectAnomaly } from '../anomaly';
 import { historyFor, inCooldown, markAlerted, pruneCounts, recordCount } from '../anomaly-store';
-import type { Channel } from './types';
+import type { Alert, Channel } from './types';
 
 /** Cap per rule per run so one wide geofence can't spam every channel. */
 export const MAX_ALERTS_PER_RULE = 10;
@@ -33,29 +35,40 @@ export async function runEvaluation(snapshot: FeedSnapshot): Promise<FiredAlert[
   const fired: FiredAlert[] = [];
 
   for (const rule of listRules()) {
-    const matches = evaluateRule(rule, snapshot);
-    if (matches.length === 0) continue;
-
-    const freshKeys = new Set(claimNewKeys(rule.id, matches.map((m) => m.key)));
-    const fresh = matches.filter((m) => freshKeys.has(m.key)).slice(0, MAX_ALERTS_PER_RULE);
-    if (fresh.length === 0) continue;
-
-    for (const match of fresh) {
-      const alert = recordAlert({
-        ruleId: rule.id,
-        title: `${rule.name} — ${match.label}`,
-        body: `Watch "${rule.name}" matched a new ${match.layer} entity: ${match.label}.`,
-        severity: severityFor(match),
-        lat: match.lat,
-        lng: match.lng,
-        payload: match.record,
-      });
-
-      const { results } = await dispatchAlert(alert, rule.channels, {
-        webhookUrl: rule.webhookUrl,
-      });
-      recordDelivery(alert.id, results);
-      fired.push({ ruleId: rule.id, alertId: alert.id, delivered: results });
+    if (!rule.enabled) continue;
+    let alerts;
+    try {
+      validateRule(rule);
+      const matches = [...new Map(evaluateRule(rule, snapshot).map(m => [m.key, m])).values()];
+      // Claim and persist ALL matches atomically, before making any network call.
+      alerts = db().transaction(() => {
+        const fresh = new Set(claimNewKeys(rule.id, matches.map(m => m.key)));
+        return matches.filter(m => fresh.has(m.key)).map(match => recordAlert({
+          ruleId: rule.id, title: `${rule.name} — ${match.label}`,
+          body: `Watch "${rule.name}" matched a new ${match.layer} entity: ${match.label}.`,
+          severity: severityFor(match), lat: match.lat, lng: match.lng, payload: match.record,
+        }));
+      })();
+    } catch (error) {
+      console.error(`[VANTAGE] skipping invalid/failed watch ${rule.id}:`, error);
+      continue;
+    }
+    if (!alerts.length) continue;
+    const batches = alerts.length > MAX_ALERTS_PER_RULE
+      ? [...alerts.slice(0, MAX_ALERTS_PER_RULE - 1).map(a => [a]), alerts.slice(MAX_ALERTS_PER_RULE - 1)]
+      : alerts.map(a => [a]);
+    for (const batch of batches) {
+      const notification = batch.length === 1 ? batch[0] : {
+        ...batch[0], title: `${rule.name} — ${batch.length} additional matches`,
+        body: `${batch.length} new matches were saved. Open the Vantage alert inbox to review all of them.`,
+        severity: (['CRITICAL', 'HIGH', 'ELEVATED', 'INFO'] as Alert['severity'][]).find(severity => batch.some(a => a.severity === severity))!,
+        payload: { count: batch.length },
+      };
+      const { results } = await dispatchAlert(notification, rule.channels, { webhookUrl: rule.webhookUrl });
+      for (const alert of batch) {
+        recordDelivery(alert.id, results);
+        fired.push({ ruleId: rule.id, alertId: alert.id, delivered: results });
+      }
     }
     markFired(rule.id);
   }
@@ -79,6 +92,7 @@ const ALERT_FEEDS: Array<{ layer: string; path: string; pick: (data: Record<stri
         Array.isArray(d[k]) ? (d[k] as unknown[]) : []
       ),
   },
+  { layer: 'maritime', path: '/api/maritime', pick: d => Array.isArray(d.ships) ? d.ships : [] },
   {
     layer: 'fires',
     path: '/api/fires',
@@ -137,13 +151,7 @@ const ALERT_FEEDS: Array<{ layer: string; path: string; pick: (data: Record<stri
   },
 ];
 
-/** Cap per layer so a huge feed cannot blow up memory or the match loop. */
-const MAX_RECORDS_PER_LAYER = 500;
-
-/**
- * True per-layer counts from the last collectSnapshot(), taken BEFORE the
- * 500-record cap — a 7,000-flight sky must not baseline at 500.
- */
+/** Complete counts from the last snapshot; never truncate watch coverage. */
 let layerCounts: Record<string, number> = {};
 
 export function lastLayerCounts(): Record<string, number> {
@@ -175,8 +183,8 @@ export async function collectSnapshot(): Promise<FeedSnapshot> {
         const data = (await res.json()) as Record<string, unknown>;
         const all = pick(data);
         counts[layer] = all.length;
-        const records = all.slice(0, MAX_RECORDS_PER_LAYER);
-        if (records.length) snapshot[layer] = records as FeedSnapshot[string];
+        const records = all.filter(r => r && typeof r === 'object' && !Array.isArray(r));
+        snapshot[layer] = records as FeedSnapshot[string];
       } catch {
         /* feed unavailable this cycle — try again next tick */
       }

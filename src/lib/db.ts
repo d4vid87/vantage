@@ -104,6 +104,11 @@ export function db(): Database.Database {
   // WAL keeps the alert poller writing while the UI reads.
   handle.pragma('journal_mode = WAL');
   handle.exec(MIGRATIONS);
+  // Additive migration: preserve existing installations and their alert history.
+  for (const [table, column] of [['watch_rules', 'snoozed_until'], ['alerts', 'acknowledged_at']]) {
+    const columns = handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!columns.some(c => c.name === column)) handle.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT`);
+  }
   _db = handle;
   return handle;
 }

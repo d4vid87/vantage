@@ -7,9 +7,10 @@
  * Ollama and pushed to Discord/ntfy/email without the UI ever being open.
  */
 
+import { toContext } from './ai/context';
 import { db, newId } from './db';
 import { collectSnapshot } from './alerts/run';
-import { generateBriefing, type IntelligenceContext } from './ai-engine';
+import { generateBriefing } from './ai-engine';
 import { dispatchAlert, channelStatus } from './alerts/dispatch';
 import { summarizeSnapshot, diffSnapshots, changesSection } from './brief-diff';
 import type { Alert, Channel } from './alerts/types';
@@ -22,9 +23,6 @@ export interface Brief {
   meta: Record<string, number> | null;
   createdAt: string;
 }
-
-/** Records per layer, capped so a huge feed cannot bloat the prompt. */
-const MAX_PER_LAYER = 25;
 
 export function getSetting(key: string): string | null {
   const row = db().prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined;
@@ -61,83 +59,7 @@ function saveBrief(b: Omit<Brief, 'id' | 'createdAt'>): Brief {
   return { id, createdAt, ...b };
 }
 
-/**
- * Shape the scheduler's snapshot into the context the briefing prompt expects.
- *
- * The feed routes and the prompt serializer disagree on field names — feeds
- * emit lat/lng/place, the serializer reads latitude/longitude/location and
- * calls .toFixed on them — so the mapping is explicit rather than a cast.
- * Unmapped layers fold into `threats`, letting a new feed reach the model
- * without touching the prompt.
- */
-export function toContext(snapshot: Record<string, unknown[]>): IntelligenceContext {
-  const rows = (k: string) => (Array.isArray(snapshot[k]) ? snapshot[k].slice(0, MAX_PER_LAYER) : []);
-  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
-  const str = (v: unknown): string => (v == null ? '' : String(v));
-
-  const earthquakes = rows('earthquakes').map((r) => {
-    const q = r as Record<string, unknown>;
-    return {
-      id: str(q.id),
-      magnitude: num(q.magnitude),
-      location: str(q.place ?? q.location),
-      latitude: num(q.lat ?? q.latitude),
-      longitude: num(q.lng ?? q.longitude),
-      depth: num(q.depth),
-      timestamp: str(q.time ?? q.timestamp),
-      tsunami: Boolean(q.tsunami),
-      felt: typeof q.felt === 'number' ? q.felt : null,
-      alert: q.alert ? str(q.alert) : null,
-    };
-  });
-
-  const news = rows('news').map((r) => {
-    const n = r as Record<string, unknown>;
-    const c = n.coords;
-    return {
-      id: str(n.id),
-      title: str(n.title),
-      description: str(n.description),
-      link: str(n.link),
-      published: str(n.published),
-      source: str(n.source),
-      risk_score: num(n.risk_score),
-      coords: Array.isArray(c) && c.length >= 2 ? ([num(c[0]), num(c[1])] as [number, number]) : null,
-      machine_assessment: n.machine_assessment ? str(n.machine_assessment) : null,
-    };
-  });
-
-  const cyberAlerts = rows('cyber').map((r) => {
-    const c = r as Record<string, unknown>;
-    return {
-      id: str(c.id), name: str(c.name), vendor: str(c.vendor), product: str(c.product),
-      severity: str(c.severity), date: str(c.date), due: str(c.due), source: str(c.source),
-    };
-  });
-
-  const known = new Set(['earthquakes', 'news', 'cyber']);
-  const threats = Object.entries(snapshot)
-    .filter(([k]) => !known.has(k))
-    .flatMap(([layer, records]) =>
-      (Array.isArray(records) ? records.slice(0, MAX_PER_LAYER) : []).map((r) => {
-        const t = r as Record<string, unknown>;
-        return {
-          id: str(t.id),
-          type: layer,
-          title: str(t.title ?? t.name ?? t.victim ?? t.utility ?? t.disease ?? t.description),
-          description: str(t.description ?? t.summary ?? t.notes ?? ''),
-          severity: (str(t.severity).toUpperCase() || 'LOW') as 'CRITICAL' | 'HIGH' | 'ELEVATED' | 'LOW',
-          region: str(t.country ?? t.country_name ?? t.state ?? t.location ?? ''),
-          latitude: num(t.lat ?? t.latitude),
-          longitude: num(t.lng ?? t.longitude),
-          timestamp: str(t.date ?? t.published ?? t.started ?? t.discovered ?? ''),
-          source: str(t.source ?? layer),
-        };
-      }),
-    );
-
-  return { earthquakes, news, threats, cyberAlerts, timestamp: new Date().toISOString() };
-}
+export { toContext } from './ai/context';
 
 export interface BriefResult {
   brief: Brief;
@@ -162,8 +84,24 @@ async function topRisks(): Promise<unknown[]> {
 
 const PREV_SNAPSHOT_KEY = 'brief_prev_snapshot';
 
-export async function generateDailyBrief(): Promise<BriefResult> {
+let generating: Promise<BriefResult> | null = null;
+export function generateDailyBrief(): Promise<BriefResult> {
+  if (!generating) generating = generate().finally(() => { generating = null; });
+  return generating;
+}
+
+async function generate(): Promise<BriefResult> {
   const snapshot = await collectSnapshot();
+  const origin = process.env.VANTAGE_SELF_ORIGIN || `http://127.0.0.1:${process.env.PORT || 3000}`;
+  await Promise.all([['news', '/api/news', 'news'], ['cyber', '/api/cyber-threats', 'threats']].map(async ([key, path, field]) => {
+    try {
+      const response = await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(20_000) });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (Array.isArray(data[field])) snapshot[key] = data[field];
+    } catch { /* other feeds can still support a brief */ }
+  }));
+  if (!Object.values(snapshot).some(rows => rows.length)) throw new Error('No feed data available for a brief.');
   const risks = await topRisks();
   if (risks.length) (snapshot as Record<string, unknown[]>).country_risk = risks;
   const counts: Record<string, number> = {};
@@ -175,16 +113,19 @@ export async function generateDailyBrief(): Promise<BriefResult> {
   try { prev = JSON.parse(getSetting(PREV_SNAPSHOT_KEY) ?? 'null'); } catch { /* corrupt = no diff */ }
   const summary = summarizeSnapshot(snapshot as Record<string, unknown[]>);
   const changes = changesSection(diffSnapshots(prev, summary));
-  setSetting(PREV_SNAPSHOT_KEY, JSON.stringify(summary));
 
   const markdown = (await generateBriefing(toContext(snapshot as Record<string, unknown[]>))) + changes;
 
-  const brief = saveBrief({
+  const brief = db().transaction(() => {
+    const saved = saveBrief({
     markdown,
     provider: process.env.VANTAGE_AI_PROVIDER || 'ollama',
     model: null,
     meta: counts,
-  });
+    });
+    setSetting(PREV_SNAPSHOT_KEY, JSON.stringify(summary));
+    return saved;
+  })();
 
   const enabled = (Object.entries(channelStatus()) as Array<[Channel, boolean]>)
     .filter(([, on]) => on)
@@ -216,18 +157,36 @@ export async function generateDailyBrief(): Promise<BriefResult> {
  * Fire at most once per day, at the configured local HH:MM. The scheduler ticks
  * every minute, so the guard — not the tick — is what makes this idempotent.
  */
+export function briefClock(now: Date, timeZone = process.env.VANTAGE_BRIEF_TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).map(p => [p.type, p.value]));
+  return { day: `${parts.year}-${parts.month}-${parts.day}`, minute: Number(parts.hour) * 60 + Number(parts.minute), timeZone };
+}
+
 export function shouldRunBrief(now: Date, configured: string | null, lastRunDate: string | null): boolean {
-  if (!configured) return false;
-  const m = /^(\d{1,2}):(\d{2})$/.exec(configured.trim());
-  if (!m) return false;
+  if (!configured || !/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(configured.trim())) return false;
+  const [hour, minute] = configured.trim().split(':').map(Number);
+  const clock = briefClock(now);
+  return clock.day !== lastRunDate && clock.minute >= hour * 60 + minute;
+}
 
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  if (lastRunDate === today) return false;
-
-  const target = Number(m[1]) * 60 + Number(m[2]);
-  const current = now.getHours() * 60 + now.getMinutes();
-  // Fire at or after the target so a missed minute under load still delivers.
-  return current >= target;
+export function briefSchedule() {
+  const at = process.env.VANTAGE_DAILY_BRIEF?.trim() || null;
+  const timeZone = process.env.VANTAGE_BRIEF_TIMEZONE || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const lastRun = getSetting(BRIEF_LAST_RUN_KEY);
+  const enabled = (process.env.VANTAGE_SCHEDULER || '').toLowerCase() !== 'off';
+  let error: string | null = null;
+  try { briefClock(new Date(), timeZone); } catch { error = 'Invalid VANTAGE_BRIEF_TIMEZONE. Use an IANA timezone such as America/Chicago.'; }
+  if (at && !/^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(at)) error = 'Invalid VANTAGE_DAILY_BRIEF. Use HH:MM (00:00–23:59).';
+  if (error) return { at, timeZone, lastRun, nextRun: null, enabled: false, error };
+  let nextRun: string | null = null;
+  if (enabled && at && /^(?:[01]?\d|2[0-3]):[0-5]\d$/.test(at)) {
+    const now = Date.now();
+    for (let i = 0; i <= 48 * 60; i++) {
+      const candidate = new Date(now + i * 60_000);
+      if (shouldRunBrief(candidate, at, lastRun)) { nextRun = candidate.toISOString(); break; }
+    }
+  }
+  return { at, timeZone, lastRun, nextRun, enabled, error };
 }
 
 export const BRIEF_LAST_RUN_KEY = 'brief_last_run_date';

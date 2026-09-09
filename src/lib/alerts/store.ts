@@ -1,5 +1,6 @@
 /** Watch-rule and alert persistence on top of the SQLite store. */
 
+import { validateRule, type RuleInput } from './validation';
 import { db, newId } from '../db';
 import type { Alert, Channel, WatchKind, WatchRule, WatchSpec } from './types';
 
@@ -12,6 +13,7 @@ interface RuleRow {
   enabled: number;
   created_at: string;
   last_fired_at: string | null;
+  snoozed_until: string | null;
 }
 
 function toRule(row: RuleRow): WatchRule {
@@ -29,6 +31,7 @@ function toRule(row: RuleRow): WatchRule {
     enabled: row.enabled === 1,
     createdAt: row.created_at,
     lastFiredAt: row.last_fired_at,
+    snoozedUntil: row.snoozed_until,
   };
 }
 
@@ -43,13 +46,8 @@ export function getRule(id: string): WatchRule | null {
   return row ? toRule(row) : null;
 }
 
-export function createRule(input: {
-  name: string;
-  kind: WatchKind;
-  spec: WatchSpec;
-  channels: Channel[];
-  webhookUrl?: string;
-}): WatchRule {
+export function createRule(raw: RuleInput): WatchRule {
+  const input = validateRule(raw);
   const id = newId('rule');
   const createdAt = new Date().toISOString();
   const spec = input.webhookUrl ? { ...input.spec, webhookUrl: input.webhookUrl } : input.spec;
@@ -89,7 +87,7 @@ export function claimNewKeys(ruleId: string, keys: string[]): string[] {
     entity_key: string;
   }[];
   const known = new Set(seen.map((r) => r.entity_key));
-  const fresh = keys.filter((k) => !known.has(k));
+  const fresh = [...new Set(keys)].filter((k) => !known.has(k));
   if (fresh.length === 0) return [];
 
   const now = new Date().toISOString();
@@ -114,6 +112,7 @@ interface AlertRow {
   payload: string | null;
   created_at: string;
   delivered: string | null;
+  acknowledged_at: string | null;
 }
 
 function toAlert(row: AlertRow): Alert {
@@ -128,6 +127,7 @@ function toAlert(row: AlertRow): Alert {
     payload: row.payload ? JSON.parse(row.payload) : null,
     createdAt: row.created_at,
     delivered: row.delivered ? JSON.parse(row.delivered) : null,
+    acknowledgedAt: row.acknowledged_at,
   };
 }
 
@@ -159,6 +159,31 @@ export function recordDelivery(alertId: string, results: Record<string, string>)
 
 export function listAlerts(limit = 100): Alert[] {
   return (
-    db().prepare('SELECT * FROM alerts ORDER BY created_at DESC LIMIT ?').all(limit) as AlertRow[]
+    db().prepare('SELECT * FROM alerts ORDER BY created_at DESC, rowid DESC LIMIT ?').all(limit) as AlertRow[]
   ).map(toAlert);
+}
+
+export function updateRule(id: string, raw: RuleInput): WatchRule {
+  const input = validateRule(raw);
+  const previous = getRule(id);
+  if (!previous) throw new Error('Watch not found.');
+  const spec = { ...input.spec, ...(input.webhookUrl ? { webhookUrl: input.webhookUrl } : {}) };
+  db().transaction(() => {
+    db().prepare('UPDATE watch_rules SET name = ?, kind = ?, spec = ?, channels = ? WHERE id = ?')
+      .run(input.name, input.kind, JSON.stringify(spec), JSON.stringify(input.channels), id);
+    // Only changed matching criteria should re-arm existing entities.
+    if (previous.kind !== input.kind || JSON.stringify(previous.spec) !== JSON.stringify(input.spec)) {
+      db().prepare('DELETE FROM watch_state WHERE rule_id = ?').run(id);
+    }
+  })();
+  return getRule(id)!;
+}
+
+export function snoozeRule(id: string, until: string | null): void {
+  db().prepare('UPDATE watch_rules SET snoozed_until = ? WHERE id = ?').run(until, id);
+}
+
+export function acknowledgeAlert(id: string, acknowledged: boolean): boolean {
+  return db().prepare('UPDATE alerts SET acknowledged_at = ? WHERE id = ?')
+    .run(acknowledged ? new Date().toISOString() : null, id).changes > 0;
 }

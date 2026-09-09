@@ -109,73 +109,7 @@ const OP_CLR:Record<string,string>={SCAN:'#00E6FF',PROBE:'#B388FF',READ:'#64FFDA
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════════════════ */
-export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,onPlaceOnMap?:(devs:{id:string,name:string,lat:number,lng:number,type:string,color:string}[])=>void}){
-  const [devices,setDevices]=useState<BLEDev[]>([]);
-  const [scanning,setScanning]=useState(false);
-  const [btOk,setBtOk]=useState(true);
-  const [error,setError]=useState<string|null>(null);
-  const [connecting,setConnecting]=useState<string|null>(null);
-  const [gattTarget,setGattTarget]=useState<string|null>(null);
-  const [gattSvcs,setGattSvcs]=useState<Svc[]>([]);
-  const [gattLoading,setGattLoading]=useState(false);
-  const [exSvc,setExSvc]=useState<string|null>(null);
-  const [wIn,setWIn]=useState<Record<string,string>>({});
-  const [copied,setCopied]=useState<string|null>(null);
-  const [pkts,setPkts]=useState<Pkt[]>([]);
-  const [bytes,setBytes]=useState(0);
-  const [view,setView]=useState<'scan'|'intel'|'log'>('scan');
-  const [autoScr,setAutoScr]=useState(true);
-  const [exDev,setExDev]=useState<string|null>(null);
-  const [full,setFull]=useState(false);
-  const [paused,setPaused]=useState(false);
-  const [expanded,setExpanded]=useState(true);
-  const [netIntel,setNetIntel]=useState<NetIntel|null>(null);
-  const [netLoading,setNetLoading]=useState(false);
-  const [vaultCount,setVaultCount]=useState(0);
-  const [vaultLoaded,setVaultLoaded]=useState(false);
-
-  const mtd=useRef(true);const errT=useRef<ReturnType<typeof setTimeout>|null>(null);
-  const nL=useRef<Map<string,(e:Event)=>void>>(new Map());const pid=useRef(0);
-  const logEl=useRef<HTMLDivElement>(null);const t0=useRef(Date.now());const[tick,setTick]=useState(0);
-
-
-  // Boot
-  useEffect(()=>{if(typeof navigator!=='undefined'&&!navigator.bluetooth)setBtOk(false);mtd.current=true;t0.current=Date.now();
-    const iv=setInterval(()=>{if(mtd.current)setTick(t=>t+1);},1000);
-    // Load vault
-    vaultLoadAll().then(saved=>{if(saved.length>0&&mtd.current){
-      const restored=saved.map((d:any)=>({...d,connected:false,probing:false,srv:undefined,bt:undefined,rssiHistory:d.rssiHistory||[],gattDump:d.gattDump||[]}));
-      setDevices(restored);setVaultCount(saved.length);setVaultLoaded(true);
-    }else{setVaultLoaded(true);}}).catch(()=>setVaultLoaded(true));
-    return()=>{mtd.current=false;clearInterval(iv);if(errT.current)clearTimeout(errT.current);nL.current.clear();};
-  },[]);
-  useEffect(()=>{if(autoScr&&logEl.current)logEl.current.scrollTop=logEl.current.scrollHeight;},[pkts,autoScr]);
-  useEffect(()=>{if(full)document.body.style.overflow='hidden';else document.body.style.overflow='';return()=>{document.body.style.overflow='';};},[full]);
-
-
-  const setErr=useCallback((m:string|null)=>{if(!mtd.current)return;setError(m);if(errT.current)clearTimeout(errT.current);if(m)errT.current=setTimeout(()=>{if(mtd.current)setError(null);},6000);},[]);
-  const log=useCallback((op:PktOp,src:string,msg:string,hex?:string,len?:number)=>{if(!mtd.current||paused)return;const p:Pkt={id:++pid.current,ts:Date.now(),op,src,msg,hex,len};setPkts(prev=>{const next=[...prev,p];return next.length>3000?next.slice(-3000):next;});if(len)setBytes(b=>b+len);},[paused]);
-  const onDC=useCallback((e:Event)=>{if(!mtd.current)return;const d=e.target as BluetoothDevice;setDevices(p=>p.map(x=>x.bt===d?{...x,connected:false,srv:undefined}:x));log('DISCONNECT',d.name||'?','GATT disconnected');},[log]);
-
-  /* ═══ PERSIST TO VAULT ═══ */
-  const saveToVault=useCallback(async(dev:BLEDev)=>{
-    const safe={...dev,bt:undefined,srv:undefined};// strip non-serializable
-    try{await vaultSave(safe);setVaultCount(c=>c+1);log('INFO','VAULT',`Saved "${dev.name}" to local database`);}catch(e:any){log('ERROR','VAULT',e.message);}
-  },[log]);
-
-  /* ═══ VIEW ON WORLD MAP ═══ */
-  const placeOnWorldMap=useCallback(()=>{
-    if(!onPlaceOnMap)return;
-    const geo=devices.filter(d=>d.geo).map(d=>({id:d.id,name:d.name,lat:d.geo!.lat,lng:d.geo!.lng,type:d.type,color:d.color}));
-    if(geo.length>0)onPlaceOnMap(geo);
-  },[devices,onPlaceOnMap]);
-  const placeSingleOnMap=useCallback((dev:BLEDev)=>{
-    if(!onPlaceOnMap||!dev.geo)return;
-    onPlaceOnMap([{id:dev.id,name:dev.name,lat:dev.geo.lat,lng:dev.geo.lng,type:dev.type,color:dev.color}]);
-  },[onPlaceOnMap]);
-
-  /* ═══ DEEP PROBE + AUTO-VACUUM ═══ */
-  const deepProbe=useCallback(async(dev:BLEDev):Promise<BLEDev>=>{
+async function probeDevice(dev: BLEDev, log: (op: PktOp, src: string, msg: string, hex?: string, len?: number) => void): Promise<BLEDev> {
     if(!dev.bt?.gatt)return{...dev,probing:false,...classify(dev.name)};
     const p0=performance.now();
     let name=dev.name,mfr:string|undefined,model:string|undefined,serial:string|undefined,fw:string|undefined,hw:string|undefined,sw:string|undefined,appearance:number|undefined,appLbl:string|undefined,battery:number|undefined,txPower:number|undefined;
@@ -247,7 +181,77 @@ export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,on
       manufacturer:mfr,model,serial,firmware:fw,hardware:hw,software:sw,
       appearance,appearanceLabel:appLbl,services,serviceCount:services.length,
       charCount,totalBytes,gattDump,geo:geo||undefined,capturedAt:Date.now()};
+}
+
+export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,onPlaceOnMap?:(devs:{id:string,name:string,lat:number,lng:number,type:string,color:string}[])=>void}){
+  const [devices,setDevices]=useState<BLEDev[]>([]);
+  const [scanning,setScanning]=useState(false);
+  const [btOk,setBtOk]=useState(true);
+  const [error,setError]=useState<string|null>(null);
+  const [connecting,setConnecting]=useState<string|null>(null);
+  const [gattTarget,setGattTarget]=useState<string|null>(null);
+  const [gattSvcs,setGattSvcs]=useState<Svc[]>([]);
+  const [gattLoading,setGattLoading]=useState(false);
+  const [exSvc,setExSvc]=useState<string|null>(null);
+  const [wIn,setWIn]=useState<Record<string,string>>({});
+  const [copied,setCopied]=useState<string|null>(null);
+  const [pkts,setPkts]=useState<Pkt[]>([]);
+  const [bytes,setBytes]=useState(0);
+  const [view,setView]=useState<'scan'|'intel'|'log'>('scan');
+  const [autoScr,setAutoScr]=useState(true);
+  const [exDev,setExDev]=useState<string|null>(null);
+  const [full,setFull]=useState(false);
+  const [paused,setPaused]=useState(false);
+  const [expanded,setExpanded]=useState(true);
+  const [netIntel,setNetIntel]=useState<NetIntel|null>(null);
+  const [netLoading,setNetLoading]=useState(false);
+  const [vaultCount,setVaultCount]=useState(0);
+  const [vaultLoaded,setVaultLoaded]=useState(false);
+
+  const mtd=useRef(true);const errT=useRef<ReturnType<typeof setTimeout>|null>(null);
+  const nL=useRef<Map<string,(e:Event)=>void>>(new Map());const pid=useRef(0);
+  const logEl=useRef<HTMLDivElement>(null);const t0=useRef(0);const[upSec,setUpSec]=useState(0);
+
+
+  // Boot
+  // Probe native Bluetooth availability after hydration.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(()=>{if(typeof navigator!=='undefined'&&!navigator.bluetooth)setBtOk(false);mtd.current=true;t0.current=Date.now();
+    const iv=setInterval(()=>{if(mtd.current)setUpSec(Math.floor((Date.now()-t0.current)/1000));},1000);
+    // Load vault
+    vaultLoadAll().then(saved=>{if(saved.length>0&&mtd.current){
+      const restored=saved.map((d:any)=>({...d,connected:false,probing:false,srv:undefined,bt:undefined,rssiHistory:d.rssiHistory||[],gattDump:d.gattDump||[]}));
+      setDevices(restored);setVaultCount(saved.length);setVaultLoaded(true);
+    }else{setVaultLoaded(true);}}).catch(()=>setVaultLoaded(true));
+    return()=>{mtd.current=false;clearInterval(iv);if(errT.current)clearTimeout(errT.current);nL.current.clear();};
+  },[]);
+  useEffect(()=>{if(autoScr&&logEl.current)logEl.current.scrollTop=logEl.current.scrollHeight;},[pkts,autoScr]);
+  useEffect(()=>{if(full)document.body.style.overflow='hidden';else document.body.style.overflow='';return()=>{document.body.style.overflow='';};},[full]);
+
+
+  const setErr=useCallback((m:string|null)=>{if(!mtd.current)return;setError(m);if(errT.current)clearTimeout(errT.current);if(m)errT.current=setTimeout(()=>{if(mtd.current)setError(null);},6000);},[]);
+  const log=useCallback((op:PktOp,src:string,msg:string,hex?:string,len?:number)=>{if(!mtd.current||paused)return;const p:Pkt={id:++pid.current,ts:Date.now(),op,src,msg,hex,len};setPkts(prev=>{const next=[...prev,p];return next.length>3000?next.slice(-3000):next;});if(len)setBytes(b=>b+len);},[paused]);
+  const onDC=useCallback((e:Event)=>{if(!mtd.current)return;const d=e.target as BluetoothDevice;setDevices(p=>p.map(x=>x.bt===d?{...x,connected:false,srv:undefined}:x));log('DISCONNECT',d.name||'?','GATT disconnected');},[log]);
+
+  /* ═══ PERSIST TO VAULT ═══ */
+  const saveToVault=useCallback(async(dev:BLEDev)=>{
+    const safe={...dev,bt:undefined,srv:undefined};// strip non-serializable
+    try{await vaultSave(safe);setVaultCount(c=>c+1);log('INFO','VAULT',`Saved "${dev.name}" to local database`);}catch(e:any){log('ERROR','VAULT',e.message);}
   },[log]);
+
+  /* ═══ VIEW ON WORLD MAP ═══ */
+  const placeOnWorldMap=useCallback(()=>{
+    if(!onPlaceOnMap)return;
+    const geo=devices.filter(d=>d.geo).map(d=>({id:d.id,name:d.name,lat:d.geo!.lat,lng:d.geo!.lng,type:d.type,color:d.color}));
+    if(geo.length>0)onPlaceOnMap(geo);
+  },[devices,onPlaceOnMap]);
+  const placeSingleOnMap=useCallback((dev:BLEDev)=>{
+    if(!onPlaceOnMap||!dev.geo)return;
+    onPlaceOnMap([{id:dev.id,name:dev.name,lat:dev.geo.lat,lng:dev.geo.lng,type:dev.type,color:dev.color}]);
+  },[onPlaceOnMap]);
+
+  /* ═══ DEEP PROBE + AUTO-VACUUM ═══ */
+  const deepProbe = useCallback((dev: BLEDev) => probeDevice(dev, log), [log]);
 
   /* ═══ SCAN ═══ */
   const scan=useCallback(async()=>{
@@ -273,7 +277,7 @@ export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,on
       setDevices(p=>p.map(d=>d.id===dev.id?{...d,connected:true,srv:s,battery:b}:d));log('CONNECT',dev.name,'✓ Connected');
     }catch(e:any){setErr(e.message);log('ERROR',dev.name,e.message);}finally{if(mtd.current)setConnecting(null);}
   },[connecting,setErr,log]);
-  const disconnect=useCallback((dev:BLEDev)=>{try{dev.bt?.gatt?.connected&&dev.bt.gatt.disconnect();}catch{}setDevices(p=>p.map(d=>d.id===dev.id?{...d,connected:false,srv:undefined}:d));if(gattTarget===dev.id){setGattTarget(null);setGattSvcs([]);}log('DISCONNECT',dev.name,'Dropped');},[gattTarget,log]);
+  const disconnect=useCallback((dev:BLEDev)=>{try{if(dev.bt?.gatt?.connected)dev.bt.gatt.disconnect();}catch{}setDevices(p=>p.map(d=>d.id===dev.id?{...d,connected:false,srv:undefined}:d));if(gattTarget===dev.id){setGattTarget(null);setGattSvcs([]);}log('DISCONNECT',dev.name,'Dropped');},[gattTarget,log]);
 
   /* ═══ GATT EXPLORER ═══ */
   const explore=useCallback(async(dev:BLEDev)=>{if(!dev.bt?.gatt)return;if(!dev.bt.gatt.connected){try{await dev.bt.gatt.connect();}catch{return;}}
@@ -316,7 +320,7 @@ export default function WorldRemote({onClose,onPlaceOnMap}:{onClose?:()=>void,on
   },[devices,log]);
 
   // Derived
-  const upSec=Math.floor((Date.now()-t0.current)/1000);const upStr=`${Math.floor(upSec/60).toString().padStart(2,'0')}:${(upSec%60).toString().padStart(2,'0')}`;
+  const upStr=`${Math.floor(upSec/60).toString().padStart(2,'0')}:${(upSec%60).toString().padStart(2,'0')}`;
   const liveCount=devices.filter(d=>d.connected).length;
   const geoCount=devices.filter(d=>d.geo).length;
 

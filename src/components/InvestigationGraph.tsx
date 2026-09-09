@@ -9,6 +9,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { usePanel } from '@/hooks/usePanel';
+import { DRAFT_KEY, parseDraft, type InvestigationDraft } from '@/lib/investigation-draft';
 import dynamic from 'next/dynamic';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Network, X, Save, FileDown, Plus, Loader2, AlertTriangle, FolderOpen } from 'lucide-react';
@@ -56,6 +58,11 @@ const TYPE_COLOR: Record<string, string> = {
 };
 
 export default function InvestigationGraph({ open, onClose, seed }: Props) {
+  const panel = usePanel<HTMLElement>(open, onClose);
+  const [notes, setNotes] = useState('');
+  const [recovery, setRecovery] = useState<InvestigationDraft | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [savedFingerprint, setSavedFingerprint] = useState('');
   const [name, setName] = useState('Untitled Investigation');
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [links, setLinks] = useState<GraphLink[]>([]);
@@ -74,10 +81,40 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
     return [{ ...seed }, ...nodes];
   }, [nodes, seed, removedSeed]);
 
+  const fingerprint = JSON.stringify({ name, notes, graph: { nodes: allNodes, links } });
+  const dirty = fingerprint !== savedFingerprint && (allNodes.length > 0 || notes.length > 0 || name !== 'Untitled Investigation');
+  useEffect(() => {
+    // Hydrate the browser recovery draft after server rendering.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    try { setRecovery(parseDraft(localStorage.getItem(DRAFT_KEY))); } catch { setError('Draft recovery storage is unavailable.'); }
+    setDraftReady(true);
+  }, []);
+  useEffect(() => {
+    if (!draftReady || recovery) return;
+    try {
+      if (dirty) localStorage.setItem(DRAFT_KEY, JSON.stringify({ id: currentId, ...JSON.parse(fingerprint) }));
+      else localStorage.removeItem(DRAFT_KEY);
+    // Surface storage failures rather than silently losing recovery protection.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    } catch { setError('Unable to store the recovery draft. Save this investigation to the server.'); }
+  }, [draftReady, recovery, dirty, fingerprint, currentId]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+  const restoreDraft = () => {
+    if (!recovery) return;
+    setName(recovery.name); setNotes(recovery.notes ?? ''); setNodes(recovery.graph.nodes); setLinks(recovery.graph.links);
+    setCurrentId(recovery.id); setRemovedSeed(true); setRecovery(null);
+  };
+
   const loadSaved = useCallback(async () => {
     try {
       const res = await fetch('/api/investigations');
       const data = await res.json();
+      if (!res.ok) throw new Error('Could not load saved investigations.');
       setSaved(data.investigations ?? []);
     } catch {
       /* listing is non-critical */
@@ -85,6 +122,8 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
   }, []);
 
   useEffect(() => {
+    // Synchronize the server-saved investigation list when the panel opens.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (open) void loadSaved();
   }, [open, loadSaved]);
 
@@ -151,7 +190,7 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
       const res = await fetch('/api/investigations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: currentId, name, graph: { nodes: allNodes, links } }),
+        body: JSON.stringify({ id: currentId, name, notes, graph: { nodes: allNodes, links } }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -159,22 +198,28 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
         return;
       }
       setCurrentId(data.investigation.id);
+      setSavedFingerprint(fingerprint);
       await loadSaved();
-    } finally {
+    } catch (err) { setError(err instanceof Error ? err.message : 'Save failed.'); } finally {
       setBusy(null);
     }
   };
 
   const load = async (id: string) => {
+    if (dirty && !window.confirm('Replace the unsaved working investigation? Save it first to keep it.')) return;
+    try {
     const res = await fetch(`/api/investigations?id=${encodeURIComponent(id)}`);
     if (!res.ok) return;
     const { investigation } = await res.json();
     setCurrentId(investigation.id);
     setName(investigation.name);
+    setNotes(investigation.notes ?? '');
+    setSavedFingerprint(JSON.stringify({ name: investigation.name, notes: investigation.notes ?? '', graph: investigation.graph }));
     setNodes(investigation.graph.nodes ?? []);
     setLinks(investigation.graph.links ?? []);
     // Loading a saved graph replaces the working set, seed included.
     setRemovedSeed(true);
+    } catch { setError('Could not load investigation.'); }
   };
 
   const exportDossier = async (format: 'markdown' | 'html') => {
@@ -183,7 +228,7 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
       const res = await fetch('/api/report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, graph: { nodes: allNodes, links }, format, assess: true }),
+        body: JSON.stringify({ name, graph: { nodes: allNodes, links }, notes, format, assess: true }),
       });
       const text = await res.text();
       if (!res.ok) {
@@ -218,7 +263,7 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
   return (
     <AnimatePresence>
       {open && (
-        <motion.aside
+        <motion.aside ref={panel} role="dialog"
           initial={{ opacity: 0, scale: 0.97 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.97 }}
@@ -265,21 +310,25 @@ export default function InvestigationGraph({ open, onClose, seed }: Props) {
             </div>
           </header>
 
+          <div className="px-3 py-1 text-[12px]" role="status">{dirty ? 'Unsaved changes — recovery draft kept in this browser.' : 'Saved.'}
+            {recovery && <div>Recovery draft: {recovery.name} <button onClick={restoreDraft}>Restore draft</button> <button onClick={() => setRecovery(null)}>Discard recovery draft</button></div>}
+          </div>
           <div className="flex min-h-0 flex-1">
             <aside
               className="w-56 shrink-0 space-y-3 overflow-y-auto border-r p-2 text-[10px]"
               style={{ borderColor: 'var(--border-primary)' }}
             >
+              <label className="block">Analyst notes<textarea className="gotham-input w-full" value={notes} onChange={e => setNotes(e.target.value)} /></label>
               <div className="space-y-1">
                 <div className="flex gap-1">
-                  <input value={newEntity} onChange={(e) => setNewEntity(e.target.value)} placeholder="entity id"
+                  <input aria-label="Entity identifier" value={newEntity} onChange={(e) => setNewEntity(e.target.value)} placeholder="entity id"
                     className="min-w-0 flex-1 rounded bg-transparent px-1.5 py-1 outline-none"
                     style={{ border: '1px solid var(--border-primary)' }} />
                   <button onClick={addManual} aria-label="Add entity" className="rounded px-1.5" style={{ background: 'var(--bg-tertiary)' }}>
                     <Plus size={10} />
                   </button>
                 </div>
-                <select value={newType} onChange={(e) => setNewType(e.target.value)}
+                <select aria-label="Entity type" value={newType} onChange={(e) => setNewType(e.target.value)}
                   className="w-full rounded px-1 py-1 outline-none"
                   style={{ border: '1px solid var(--border-primary)', background: 'var(--bg-tertiary)' }}>
                   {[...EXPANDABLE, 'wallet', 'domain'].map((t) => (

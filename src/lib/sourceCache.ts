@@ -57,7 +57,7 @@ export function cachedSource<T>(
     const now = Date.now();
     const entry = store.get(key) as Entry<T> | undefined;
 
-    if (entry && now < entry.expiresAt && entry.data.length > 0) return entry.data;
+    if (entry && now < entry.expiresAt) return entry.data;
     if (entry?.inflight) return entry.inflight;
 
     const inflight = (async () => {

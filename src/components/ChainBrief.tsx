@@ -48,7 +48,7 @@ function ChainBriefInner() {
   const [aiLoading, setAiLoading] = useState(false);
 
   const briefRef = useRef(brief);
-  briefRef.current = brief;
+  useEffect(() => { briefRef.current = brief; }, [brief]);
 
   const load = useCallback(async (d: number, force = false) => {
     setLoading(true);
@@ -66,6 +66,8 @@ function ChainBriefInner() {
     }
   }, []);
 
+  // A changed period starts a request and exposes its loading state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load(days); }, [days, load]);
 
   // Keeps a long-open panel from going stale; the upstreams move daily at most.

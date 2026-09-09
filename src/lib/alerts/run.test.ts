@@ -121,3 +121,46 @@ describe('collectSnapshot', () => {
     expect(snap.flights).toBeUndefined();
   });
 });
+
+it('persists every burst match and deduplicates repeated records', async () => {
+  const { listAlerts } = await import('./store');
+  createRule({ name: 'Burst', kind: 'threshold', spec: { layer: 'earthquakes', field: 'magnitude', min: 5 }, channels: ['webhook'], webhookUrl: 'https://hooks.test/inbox' });
+  const notifications: { severity: string }[] = [];
+  vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+    notifications.push(JSON.parse(String(init.body)));
+    return new Response('ok');
+  }));
+  const rows = Array.from({ length: 12 }, (_, id) => ({ id, magnitude: id === 11 ? 8 : 6 }));
+  expect(await runEvaluation({ earthquakes: [...rows, rows[0]] })).toHaveLength(12);
+  expect(listAlerts()).toHaveLength(12);
+  expect(notifications).toHaveLength(10);
+  expect(notifications[9].severity).toBe('CRITICAL');
+  expect(await runEvaluation({ earthquakes: rows })).toHaveLength(0);
+});
+
+it('includes aircraft beyond record 500 and maritime data', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(String(url).endsWith('/api/flights')
+    ? { commercial_flights: Array.from({ length: 501 }, (_, id) => ({ icao24: `plane-${id}` })) }
+    : String(url).endsWith('/api/maritime') ? { ships: [{ mmsi: '123456789' }] } : {}))));
+  const snap = await collectSnapshot();
+  expect(snap.flights).toHaveLength(501);
+  expect(snap.maritime).toHaveLength(1);
+  createRule({ name: 'Last aircraft', kind: 'entity', spec: { entityType: 'flight', identifier: 'plane-500' }, channels: [] });
+  expect(await runEvaluation(snap)).toHaveLength(1);
+});
+
+it('isolates a malformed legacy rule from valid rules', async () => {
+  const { db } = await import('../db');
+  createRule({ name: 'Good', kind: 'threshold', spec: { layer: 'earthquakes', field: 'magnitude', min: 5 }, channels: [] });
+  db().prepare("INSERT INTO watch_rules (id,name,kind,spec,channels,enabled,created_at) VALUES ('broken','Broken','entity','{}','[]',1,'9999')").run();
+  expect(await runEvaluation(snapshot)).toHaveLength(1);
+});
+
+it('rolls back seen keys when alert persistence fails', async () => {
+  const { db } = await import('../db');
+  createRule({ name: 'Reliable', kind: 'threshold', spec: { layer: 'earthquakes', field: 'magnitude', min: 5 }, channels: [] });
+  db().exec("CREATE TRIGGER reject_alert BEFORE INSERT ON alerts BEGIN SELECT RAISE(FAIL, 'simulated disk failure'); END");
+  expect(await runEvaluation(snapshot)).toHaveLength(0);
+  db().exec('DROP TRIGGER reject_alert');
+  expect(await runEvaluation(snapshot)).toHaveLength(1);
+});

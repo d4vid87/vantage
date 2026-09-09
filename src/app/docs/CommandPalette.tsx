@@ -65,16 +65,19 @@ export default function CommandPalette({
       .map(r => r.it);
   }, [items, query]);
 
-  // Reset per opening, and focus the field.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
+    if (open) { setQuery(''); setCursor(0); }
+  }
+
+  // Focus after the opening render.
   useEffect(() => {
     if (open) {
-      setQuery('');
-      setCursor(0);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [open]);
 
-  useEffect(() => setCursor(0), [query]);
 
   // Keep the highlighted row inside the scroll viewport.
   useEffect(() => {
@@ -128,7 +131,7 @@ export default function CommandPalette({
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setQuery(e.target.value); setCursor(0); }}
             onKeyDown={onKeyDown}
             placeholder="Search sections and endpoints…"
             aria-label="Search documentation"

@@ -1,5 +1,7 @@
 'use client';
 
+import { useHydrated } from '@/hooks/useHydrated';
+
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,6 +9,7 @@ import {
   ChevronDown, ChevronUp, MapPin, ExternalLink, AlertTriangle,
   Newspaper, Clock, Radio, Maximize2, Minimize2
 } from 'lucide-react';
+import AlertInbox from './AlertInbox';
 import AiOverview from './AiOverview';
 import { BUILTIN_FEEDS as SHARED_FEEDS } from '@/lib/news-feeds';
 
@@ -27,7 +30,7 @@ const RISK_COLORS: Record<string, string> = {
 export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsProps) {
   const [expanded, setExpanded] = useState(true);
   const [maximized, setMaximized] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'news' | 'quakes' | 'feeds'>('all');
+  const [filter, setFilter] = useState<'inbox' | 'all' | 'news' | 'quakes' | 'feeds'>('inbox');
 
   // One shared registry — this list used to diverge from /api/live-news.
   const BUILTIN_FEEDS = SHARED_FEEDS;
@@ -84,8 +87,7 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
   };
 
   // Ensure portal only renders on client
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useHydrated();
 
   const content = (
     <motion.div
@@ -97,6 +99,7 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
       {/* Header - Fixed Height, Never Shrinks */}
       <div
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setExpanded(!expanded); } }}
         role="button"
         tabIndex={0}
         className="flex-shrink-0 flex items-center justify-between px-3 py-2 hover:bg-[var(--hover-accent)] transition-colors cursor-pointer outline-none border-b border-[rgba(255,255,255,0.05)] bg-[rgba(0,0,0,0.3)]"
@@ -126,8 +129,8 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
             className={`flex flex-col flex-1 min-h-0 ${maximized ? 'bg-[#0a0a09]' : 'bg-transparent'}`}
           >
             {/* Filters - Fixed Height, Never Shrinks */}
-            <div className={`flex-shrink-0 flex gap-1 ${maximized ? 'px-6 py-4 border-b border-[#2A2A28] bg-[#111111]' : 'px-3 py-2 border-b border-[rgba(255,255,255,0.05)]'}`}>
-              {(['all', 'news', 'quakes', 'feeds'] as const).map(f => (
+            <div className={`flex-shrink-0 flex flex-wrap gap-1 ${maximized ? 'px-6 py-4 border-b border-[#2A2A28] bg-[#111111]' : 'px-3 py-2 border-b border-[rgba(255,255,255,0.05)]'}`}>
+              {(['inbox', 'all', 'news', 'quakes', 'feeds'] as const).map(f => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -138,6 +141,7 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
               ))}
             </div>
 
+            {filter === 'inbox' ? <AlertInbox onLocate={onLocate} /> : <>
             {/* One-click AI overview of the current alert picture */}
             <div className={`flex-shrink-0 ${maximized ? 'px-6 pt-3' : 'px-3 pt-2'}`}>
               <AiOverview mode="alerts" payload={data} accent="#FF4081" />
@@ -214,6 +218,7 @@ export default function LiveAlerts({ data, onLocate, onWatchFeed }: LiveAlertsPr
                 </div>
               )}
             </div>
+            </>}
           </motion.div>
         )}
       </AnimatePresence>

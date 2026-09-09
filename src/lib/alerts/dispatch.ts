@@ -42,6 +42,7 @@ async function sendDiscord(alert: Alert): Promise<void> {
 
   const res = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       username: 'Vantage',
@@ -75,7 +76,7 @@ export function asciiHeader(value: string): string {
     .replace(/[\u201C\u201D]/g, '"')
     .replace(/\u2026/g, '...')
     .normalize('NFKD')
-    // eslint-disable-next-line no-control-regex
+
     .replace(/[^\x00-\x7F]/g, '');
 }
 
@@ -94,6 +95,7 @@ async function sendNtfy(alert: Alert): Promise<void> {
 
   const res = await fetch(`${base.replace(/\/+$/, '')}/${encodeURIComponent(topic)}`, {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers,
     body: alert.body + locationLine(alert),
   });
@@ -109,6 +111,7 @@ async function sendEmail(alert: Alert): Promise<void> {
   const nodemailer = (await import('nodemailer')).default;
   const transport = nodemailer.createTransport({
     host,
+    connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 15_000,
     port: Number(process.env.VANTAGE_SMTP_PORT || 587),
     secure: process.env.VANTAGE_SMTP_SECURE === 'true',
     ...(process.env.VANTAGE_SMTP_USER
@@ -138,6 +141,7 @@ async function sendWebhook(alert: Alert, overrideUrl?: string): Promise<void> {
   // link-local (cloud metadata) and other reserved ranges, on redirects too.
   const res = await safeFetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers: { 'Content-Type': 'application/json', 'User-Agent': 'Vantage' },
     body: JSON.stringify(alert),
   });

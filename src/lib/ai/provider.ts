@@ -20,6 +20,7 @@ export interface GenerateOptions {
   /** Upper bound on response length. */
   maxTokens?: number;
   temperature?: number;
+  signal?: AbortSignal;
 }
 
 export interface LLMProvider {

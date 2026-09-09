@@ -1,3 +1,5 @@
+import https from 'node:https';
+import http from 'node:http';
 import { NextResponse } from 'next/server';
 import { stealthFetch } from '@/lib/stealthFetch';
 
@@ -155,8 +157,6 @@ async function fetchAllLiveConflictData(): Promise<{ events: ConflictEvent[]; ev
   ];
 
   try {
-    const https = require('https');
-    const http = require('http');
 
     const fetchRSS = (url: string): Promise<string> => {
       return new Promise((resolve, reject) => {

@@ -41,7 +41,7 @@ export function createGeminiProvider(): LLMProvider {
   return {
     name: 'gemini',
     model,
-    async generate({ system, prompt, temperature, maxTokens }: GenerateOptions): Promise<string> {
+    async generate({ system, prompt, temperature, maxTokens, signal }: GenerateOptions): Promise<string> {
       const client = new GoogleGenerativeAI(rotateKey(keys));
       const generative = client.getGenerativeModel({
         model,
@@ -51,11 +51,11 @@ export function createGeminiProvider(): LLMProvider {
           ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
         },
       });
-      const result = await generative.generateContent(prompt);
+      const result = await generative.generateContent(prompt, { signal, timeout: 180_000 });
       return result.response.text().trim();
     },
 
-    async *generateStream({ system, prompt, temperature, maxTokens }: GenerateOptions) {
+    async *generateStream({ system, prompt, temperature, maxTokens, signal }: GenerateOptions) {
       const client = new GoogleGenerativeAI(rotateKey(keys));
       const generative = client.getGenerativeModel({
         model,
@@ -65,7 +65,7 @@ export function createGeminiProvider(): LLMProvider {
           ...(maxTokens ? { maxOutputTokens: maxTokens } : {}),
         },
       });
-      const result = await generative.generateContentStream(prompt);
+      const result = await generative.generateContentStream(prompt, { signal, timeout: 180_000 });
       for await (const chunk of result.stream) {
         const piece = chunk.text();
         if (piece) yield piece;

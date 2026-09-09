@@ -866,15 +866,24 @@ export const API_GROUPS: ApiGroup[] = [
         path: '/api/watchlist',
         method: 'GET',
         summary: 'Lists watch rules and reports which delivery channels are configured.',
-        returns: ['rules', 'channels'],
+        returns: ['rules', 'channels', 'fields', 'capabilities'],
       },
       {
         path: '/api/watchlist',
         method: 'POST',
-        summary: 'Creates a watch rule.',
+        summary: 'Creates a validated watch rule, previews matches, or tests delivery.',
+        params: [{ name: 'action', required: false, desc: 'preview: no save or delivery; test: explicitly send a test notification; omit to save.' }],
         returns: ['rule'],
         notes:
           'Body: `{ name, kind: aoi|entity|threshold, spec, channels[], webhookUrl? }`. `webhookUrl` must be http(s) and is resolved against the SSRF guard — internal, loopback and link-local targets are rejected at 400.',
+      },
+      {
+        path: '/api/watchlist',
+        method: 'PATCH',
+        summary: 'Edits, enables or temporarily mutes a watch.',
+        params: [{ name: 'id', required: true, desc: 'Rule id.' }],
+        returns: ['rule'],
+        notes: 'Body: a complete watch object, { enabled: boolean }, or { snoozeMinutes: 0–10080 }. Zero clears the mute. Changing criteria re-arms existing matches.',
       },
       {
         path: '/api/watchlist',
@@ -889,6 +898,21 @@ export const API_GROUPS: ApiGroup[] = [
         summary: 'Most recent fired alerts, newest first.',
         params: [{ name: 'limit', required: false, desc: 'Max rows, 1-500. Default 100.' }],
         returns: ['alerts'],
+      },
+      {
+        path: '/api/alerts',
+        method: 'PATCH',
+        summary: 'Acknowledges an alert or clears its acknowledgement.',
+        returns: ['ok'],
+        notes: 'Body: { id: string, acknowledged: boolean }.',
+      },
+      {
+        path: '/api/diagnostics',
+        method: 'GET',
+        summary: 'Checks database writes, AI configuration, optional feeds and delivery configuration.',
+        returns: ['checks', 'schedule'],
+        requiresAuth: true,
+        notes: 'Checks local Ollama connectivity and installed model. Hosted AI and notification channels are configuration checks only; no test notification is sent.',
       },
       {
         path: '/api/alerts/tick',

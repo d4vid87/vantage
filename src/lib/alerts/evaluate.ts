@@ -8,6 +8,7 @@
  * ═══════════════════════════════════════════════════════════════
  */
 
+import { inBounds } from '../ai/context';
 import { pointInPolygon } from '../aoi';
 import type { AoiSpec, EntitySpec, ThresholdSpec, WatchRule } from './types';
 
@@ -69,20 +70,12 @@ function matchEntity(spec: EntitySpec, snapshot: FeedSnapshot): Match[] {
   if (!needle) return [];
 
   const out: Match[] = [];
-  for (const [layer, records] of Object.entries(snapshot)) {
-    for (const rec of records) {
-      // Match on any identifier-ish field rather than guessing the schema of
-      // every one of the 16 layers.
-      const hay = [
-        rec.id, rec.icao24, rec.mmsi, rec.address, rec.wallet, rec.channel,
-        rec.callsign, rec.name, rec.title,
-      ]
-        .filter((v) => typeof v === 'string' || typeof v === 'number')
-        .map((v) => String(v).toLowerCase());
-      if (!hay.some((h) => h === needle || h.includes(needle))) continue;
+  const layer = spec.entityType === 'flight' ? 'flights' : spec.entityType === 'vessel' ? 'maritime' : '';
+  for (const rec of snapshot[layer] ?? []) {
+      const identifiers = spec.entityType === 'flight' ? [rec.icao24, rec.callsign, rec.registration] : [rec.mmsi, rec.name];
+      if (!identifiers.some(v => String(v ?? '').trim().toLowerCase() === needle)) continue;
       const { lat, lng } = coordsOf(rec);
       out.push({ key: keyOf(layer, rec), layer, record: rec, lat, lng, label: labelOf(rec) });
-    }
   }
   return out;
 }
@@ -95,8 +88,7 @@ function matchThreshold(spec: ThresholdSpec, snapshot: FeedSnapshot): Match[] {
     const { lat, lng } = coordsOf(rec);
     if (spec.bbox) {
       if (lat == null || lng == null) continue;
-      const { west, south, east, north } = spec.bbox;
-      if (lng < west || lng > east || lat < south || lat > north) continue;
+      if (!inBounds(lat, lng, spec.bbox)) continue;
     }
     out.push({ key: keyOf(spec.layer, rec), layer: spec.layer, record: rec, lat, lng, label: labelOf(rec) });
   }
@@ -105,7 +97,7 @@ function matchThreshold(spec: ThresholdSpec, snapshot: FeedSnapshot): Match[] {
 
 /** All records in `snapshot` that satisfy `rule`. Disabled rules match nothing. */
 export function evaluateRule(rule: WatchRule, snapshot: FeedSnapshot): Match[] {
-  if (!rule.enabled) return [];
+  if (!rule.enabled || (rule.snoozedUntil && Date.parse(rule.snoozedUntil) > Date.now())) return [];
   switch (rule.kind) {
     case 'aoi':
       return matchAoi(rule.spec as AoiSpec, snapshot);

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { resetDbForTests } from '../db';
 import {
+  acknowledgeAlert,
   claimNewKeys,
   createRule,
   deleteRule,
@@ -50,7 +51,7 @@ describe('watch rules', () => {
     const rule = createRule({
       name: 'Wallet watch',
       kind: 'entity',
-      spec: { entityType: 'wallet', identifier: '0xdead' },
+      spec: { entityType: 'flight', identifier: 'ab1234' },
       channels: ['webhook'],
       webhookUrl: 'https://hooks.test/inbox',
     });
@@ -114,6 +115,12 @@ describe('alerts', () => {
     recordDelivery(alert.id, { discord: 'ok', email: 'SMTP down' });
     expect(listAlerts()[0].delivered).toEqual({ discord: 'ok', email: 'SMTP down' });
     expect(listAlerts()[0].payload).toEqual({ magnitude: 6 });
+    expect(acknowledgeAlert(alert.id, true)).toBe(true);
+    resetDbForTests();
+    expect(listAlerts()[0].acknowledgedAt).toEqual(expect.any(String));
+    expect(acknowledgeAlert(alert.id, false)).toBe(true);
+    expect(listAlerts()[0].acknowledgedAt).toBeNull();
+    expect(acknowledgeAlert('missing', true)).toBe(false);
   });
 
   it('returns alerts newest first and honours the limit', () => {

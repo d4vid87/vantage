@@ -39,6 +39,7 @@ export interface WatchRule {
   enabled: boolean;
   createdAt: string;
   lastFiredAt: string | null;
+  snoozedUntil?: string | null;
 }
 
 export interface Alert {
@@ -52,4 +53,5 @@ export interface Alert {
   payload: unknown;
   createdAt: string;
   delivered: Record<string, string> | null;
+  acknowledgedAt?: string | null;
 }

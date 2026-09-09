@@ -81,12 +81,12 @@ describe('evaluateRule — entity', () => {
     expect(matches.map((m) => m.key)).toEqual(['flights:f1']);
   });
 
-  it('tolerates a leading @ on channel handles', () => {
+  it('does not match unsupported channel watches against aircraft', () => {
     const matches = evaluateRule(
       rule({ kind: 'entity', spec: { entityType: 'channel', identifier: '@TEST01' } }),
       snapshot
     );
-    expect(matches).toHaveLength(1);
+    expect(matches).toHaveLength(0);
   });
 
   it('returns nothing for an empty identifier rather than matching everything', () => {

@@ -29,9 +29,10 @@ export function createClaudeProvider(): LLMProvider {
   return {
     name: 'claude',
     model,
-    async generate({ system, prompt, temperature, maxTokens }: GenerateOptions): Promise<string> {
+    async generate({ system, prompt, temperature, maxTokens, signal }: GenerateOptions): Promise<string> {
       const res = await fetch(API_URL, {
         method: 'POST',
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,
@@ -57,9 +58,10 @@ export function createClaudeProvider(): LLMProvider {
         .trim();
     },
 
-    async *generateStream({ system, prompt, temperature, maxTokens }: GenerateOptions) {
+    async *generateStream({ system, prompt, temperature, maxTokens, signal }: GenerateOptions) {
       const res = await fetch(API_URL, {
         method: 'POST',
+          signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': apiKey,

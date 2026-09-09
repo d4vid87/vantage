@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bot, Send, X, Loader2, AlertTriangle, Cpu, Layers, Crosshair, MapPin } from 'lucide-react';
+import { usePanel } from '@/hooks/usePanel';
 import type { CopilotAction } from '@/lib/ai/actions';
 
 export interface CopilotContext {
@@ -19,6 +20,7 @@ export interface CopilotContext {
   threats: unknown[];
   cyberAlerts: unknown[];
   timestamp: string;
+  scope?: string;
 }
 
 interface Turn {
@@ -56,6 +58,10 @@ const SUGGESTIONS = [
 ];
 
 export default function CopilotPanel({ open, onClose, getContext, onAction }: Props) {
+  const panel = usePanel<HTMLElement>(open, onClose);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => { if (!open) request.current?.abort(); }, [open]);
+  useEffect(() => () => request.current?.abort(), []);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -77,11 +83,15 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
   }, [turns, busy, streaming]);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, retry = false) => {
       const question = text.trim();
-      if (!question || busy) return;
+      if (!question || busy || request.current) return;
 
-      const next: Turn[] = [...turns, { role: 'user', content: question }];
+      const history = retry && turns.at(-1)?.role === 'user' ? turns.slice(0, -1) : turns;
+      const next: Turn[] = [...history, { role: 'user', content: question }];
+      const controller = new AbortController();
+      request.current = controller;
+      let shown = '';
       setTurns(next);
       setInput('');
       setBusy(true);
@@ -91,6 +101,7 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
       try {
         const res = await fetch('/api/ai/chat', {
           method: 'POST',
+          signal: controller.signal,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: next, context: getContext() }),
         });
@@ -105,7 +116,6 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let shown = '';
         let finished = false;
 
         while (!finished) {
@@ -158,8 +168,10 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
           setStreaming('');
         }
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Copilot request failed.');
+        if (shown) { setTurns([...next, { role: 'assistant', content: shown }]); setStreaming(''); }
+        setError(controller.signal.aborted ? 'Generation stopped.' : err instanceof Error ? err.message : 'Copilot request failed.');
       } finally {
+        request.current = null;
         setBusy(false);
       }
     },
@@ -169,7 +181,7 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
   return (
     <AnimatePresence>
       {open && (
-        <motion.aside
+        <motion.aside ref={panel} role="dialog"
           initial={{ opacity: 0, x: 40 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 40 }}
@@ -236,6 +248,7 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
                   {t.content}
                 </div>
 
+                {t.role === 'assistant' && <button className="text-[11px] opacity-70" onClick={() => navigator.clipboard.writeText(t.content).catch(() => setError('Copy unavailable. Select the answer text to copy it.'))}>Copy answer</button>}
                 {/* Proposed actions never run on their own — one click each. */}
                 {t.actions && t.actions.length > 0 && onAction && (
                   <div className="mt-1 flex flex-wrap gap-1 pl-2">
@@ -283,6 +296,10 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
             )}
           </div>
 
+          <div className="px-3 flex gap-3 text-[12px]">
+            {busy && <button onClick={() => request.current?.abort()}>Stop generation</button>}
+            {!busy && error && <button onClick={() => { const last = [...turns].reverse().find(t => t.role === 'user'); if (last) void send(last.content, true); }}>Retry last question</button>}
+          </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -292,6 +309,7 @@ export default function CopilotPanel({ open, onClose, getContext, onAction }: Pr
             style={{ borderColor: 'var(--border-primary)' }}
           >
             <input
+              aria-label="Ask the analyst"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Ask the analyst…"

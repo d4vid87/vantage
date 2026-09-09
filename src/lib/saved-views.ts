@@ -26,8 +26,8 @@ export function parseViews(raw: string | null): SavedView[] {
     const list = JSON.parse(raw);
     if (!Array.isArray(list)) return [];
     return list.filter((v): v is SavedView =>
-      !!v && typeof v.name === 'string' && Array.isArray(v.layers)
-      && Number.isFinite(v.lat) && Number.isFinite(v.lng) && Number.isFinite(v.zoom)
+      !!v && typeof v.name === 'string' && !!v.name.trim() && v.name.length <= 120 && Array.isArray(v.layers) && v.layers.every((k: unknown) => typeof k === 'string')
+      && Number.isFinite(v.lat) && Math.abs(v.lat) <= 90 && Number.isFinite(v.lng) && Number.isFinite(v.zoom) && v.zoom >= 0 && v.zoom <= 24
     ).slice(0, MAX_VIEWS);
   } catch {
     return [];
@@ -42,4 +42,12 @@ export function upsertView(views: SavedView[], view: SavedView): SavedView[] {
 
 export function removeView(views: SavedView[], name: string): SavedView[] {
   return views.filter(v => v.name !== name);
+}
+
+/** Reject an invalid import as a whole so it never silently replaces valid views. */
+export function importViews(raw: string, existing: SavedView[]): SavedView[] {
+  if (raw.length > 1_000_000) throw new Error('View file is too large.');
+  const list: unknown = JSON.parse(raw);
+  if (!Array.isArray(list) || list.length > MAX_VIEWS || parseViews(raw).length !== list.length) throw new Error('Expected up to 24 valid saved views.');
+  return parseViews(raw).reduce((views, view) => upsertView(views, view), existing);
 }

@@ -10,8 +10,9 @@
 
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { usePanel } from '@/hooks/usePanel';
 import { Bookmark, X, Trash2, Plus } from 'lucide-react';
-import { VIEWS_KEY, parseViews, upsertView, removeView, type SavedView } from '@/lib/saved-views';
+import { VIEWS_KEY, parseViews, importViews, upsertView, removeView, type SavedView } from '@/lib/saved-views';
 
 interface Props {
   open: boolean;
@@ -22,16 +23,19 @@ interface Props {
 }
 
 export default function SavedViewsPanel({ open, onClose, currentLayers, currentCamera, onApply }: Props) {
+  const panel = usePanel<HTMLDivElement>(open, onClose);
+  const [error, setError] = useState('');
   const [views, setViews] = useState<SavedView[]>([]);
   const [name, setName] = useState('');
 
   useEffect(() => {
-    if (open) setViews(parseViews(localStorage.getItem(VIEWS_KEY)));
+    // Read browser-local views when the panel opens, after server hydration.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (open) { try { setViews(parseViews(localStorage.getItem(VIEWS_KEY))); } catch { setError('Browser storage is unavailable.'); } }
   }, [open]);
 
   const persist = (next: SavedView[]) => {
-    setViews(next);
-    try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); } catch { /* quota or private mode */ }
+    try { localStorage.setItem(VIEWS_KEY, JSON.stringify(next)); setViews(next); setError(''); } catch { setError('Could not save views in browser storage.'); }
   };
 
   const saveCurrent = () => {
@@ -51,20 +55,21 @@ export default function SavedViewsPanel({ open, onClose, currentLayers, currentC
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
+        <motion.div ref={panel} role="dialog" aria-label="Saved views"
           initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 40 }}
           className="gotham-panel"
-          style={{ position: 'absolute', top: 60, right: 12, width: 'min(320px, calc(100vw - 24px))', maxHeight: '60vh', zIndex: 40, display: 'flex', flexDirection: 'column' }}
+          style={{ position: 'absolute', top: 60, right: 12, width: 'min(320px, calc(100vw - 24px))', maxHeight: '60vh', zIndex: 900, display: 'flex', flexDirection: 'column' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, letterSpacing: '0.08em' }}>
               <Bookmark size={13} /> SAVED VIEWS
             </span>
-            <button onClick={onClose} className="gotham-btn" style={{ padding: '2px 5px' }}><X size={12} /></button>
+            <button onClick={onClose} aria-label="Close saved views" className="gotham-btn" style={{ padding: '2px 5px' }}><X size={12} /></button>
           </div>
 
           <div style={{ display: 'flex', gap: 6, padding: '8px 10px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             <input
+              aria-label="View name" maxLength={120}
               value={name}
               onChange={e => setName(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') saveCurrent(); }}
@@ -78,6 +83,20 @@ export default function SavedViewsPanel({ open, onClose, currentLayers, currentC
             </button>
           </div>
 
+          <div className="px-3 py-2 text-[12px] space-y-2">
+            <button className="gotham-btn" onClick={() => {
+              const url = URL.createObjectURL(new Blob([JSON.stringify(views, null, 2)], { type: 'application/json' }));
+              const a = document.createElement('a'); a.href = url; a.download = 'vantage-views.json'; a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            }}>Export views</button>
+            <label className="block">Import views (matching names are replaced)<input type="file" accept="application/json,.json" className="block w-full" onChange={async e => {
+              const file = e.target.files?.[0]; e.target.value = '';
+              if (!file) return;
+              try { if (file.size > 1_000_000) throw new Error('View file is too large.'); persist(importViews(await file.text(), views)); }
+              catch (err) { setError(err instanceof Error ? err.message : 'Import failed.'); }
+            }} /></label>
+            {error && <p role="alert" className="text-red-300">{error}</p>}
+          </div>
           <div style={{ overflowY: 'auto', padding: '4px 10px 8px', fontSize: 11, color: '#CBD5E1' }}>
             {views.length === 0 && (
               <div style={{ opacity: 0.6, padding: '8px 0' }}>

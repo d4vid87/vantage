@@ -1,5 +1,7 @@
 'use client';
 
+import { useHydrated } from '@/hooks/useHydrated';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { API_GROUPS, ENDPOINT_COUNT, endpointId } from './apiCatalog';
@@ -29,13 +31,13 @@ export default function DocsClient() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [origin, setOrigin] = useState(FALLBACK_ORIGIN);
+  const hydrated = useHydrated();
+  const origin = hydrated ? window.location.origin : FALLBACK_ORIGIN;
   const mainRef = useRef<HTMLElement>(null);
 
   const paletteItems = useMemo(() => buildPaletteItems(ALL_SECTIONS), []);
 
   /* Snippets should reference the instance the reader is actually on. */
-  useEffect(() => setOrigin(window.location.origin), []);
 
   /* Belt-and-braces scroll unlock: globals.css handles this via :has(),
      but release the lock imperatively for engines without :has() support. */

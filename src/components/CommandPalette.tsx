@@ -59,14 +59,13 @@ export default function CommandPalette({ panels, onAction }: Props) {
 
   const results = useMemo(() => searchCommands(commands, query), [commands, query]);
 
-  useEffect(() => { setCursor(0); }, [query]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setOpen(v => !v);
-        setQuery('');
+        setQuery(''); setCursor(0);
       } else if (e.key === 'Escape') {
         setOpen(false);
       }
@@ -80,7 +79,7 @@ export default function CommandPalette({ panels, onAction }: Props) {
   const run = useCallback((c: Command) => {
     onAction(c.action);
     setOpen(false);
-    setQuery('');
+    setQuery(''); setCursor(0);
   }, [onAction]);
 
   if (!open) return null;
@@ -96,7 +95,7 @@ export default function CommandPalette({ panels, onAction }: Props) {
           <input
             ref={inputRef}
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => { setQuery(e.target.value); setCursor(0); }}
             onKeyDown={e => {
               if (e.key === 'ArrowDown') { e.preventDefault(); setCursor(c => Math.min(c + 1, results.length - 1)); }
               else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor(c => Math.max(c - 1, 0)); }

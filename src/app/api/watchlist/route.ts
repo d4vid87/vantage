@@ -1,109 +1,58 @@
-/**
- * VANTAGE — Watchlist CRUD
- *   GET    /api/watchlist         list rules + channel readiness
- *   POST   /api/watchlist         create a rule
- *   PATCH  /api/watchlist?id=…    enable / disable
- *   DELETE /api/watchlist?id=…    remove
- */
-
 import { NextRequest, NextResponse } from 'next/server';
-import { createRule, deleteRule, listRules, setRuleEnabled } from '@/lib/alerts/store';
-import { channelStatus } from '@/lib/alerts/dispatch';
-import { ALL_CHANNELS, type Channel, type WatchKind } from '@/lib/alerts/types';
-import { validateHost } from '@/lib/ssrf-guard';
+import { createRule, deleteRule, getRule, listRules, setRuleEnabled, snoozeRule, updateRule } from '@/lib/alerts/store';
+import { channelStatus, dispatchAlert } from '@/lib/alerts/dispatch';
+import { validateWatchInput } from '@/lib/alerts/input';
+import { record, WATCH_FIELDS } from '@/lib/alerts/validation';
+import { collectSnapshot } from '@/lib/alerts/run';
+import { evaluateRule } from '@/lib/alerts/evaluate';
 
 export const dynamic = 'force-dynamic';
-
-const KINDS: WatchKind[] = ['aoi', 'entity', 'threshold'];
+const failure = (e: unknown) => NextResponse.json({ error: e instanceof Error ? e.message : 'Invalid request.' }, { status: 400 });
 
 export async function GET() {
-  return NextResponse.json({ rules: listRules(), channels: channelStatus() });
+  return NextResponse.json({ rules: listRules(), channels: channelStatus(), fields: WATCH_FIELDS, capabilities: { maritime: !!process.env.AIS_API_KEY, acled: !!(process.env.ACLED_API_KEY && process.env.ACLED_EMAIL) } });
 }
 
 export async function POST(request: NextRequest) {
-  let body: {
-    name?: string;
-    kind?: string;
-    spec?: unknown;
-    channels?: string[];
-    webhookUrl?: string;
-  };
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
-  }
-
-  const name = (body.name ?? '').toString().trim();
-  if (!name) return NextResponse.json({ error: 'name is required.' }, { status: 400 });
-
-  if (!KINDS.includes(body.kind as WatchKind)) {
-    return NextResponse.json(
-      { error: `kind must be one of ${KINDS.join(', ')}.` },
-      { status: 400 }
-    );
-  }
-  if (!body.spec || typeof body.spec !== 'object') {
-    return NextResponse.json({ error: 'spec object is required.' }, { status: 400 });
-  }
-
-  const channels = (body.channels ?? []).filter((c): c is Channel =>
-    ALL_CHANNELS.includes(c as Channel)
-  );
-
-  // A per-rule webhook target is user-supplied and gets POSTed to by the
-  // server, so constrain it to http(s) rather than accepting any scheme.
-  let webhookUrl: string | undefined;
-  if (body.webhookUrl) {
-    let parsed: URL;
-    try {
-      parsed = new URL(body.webhookUrl);
-      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error('scheme');
-    } catch {
-      return NextResponse.json(
-        { error: 'webhookUrl must be a valid http(s) URL.' },
-        { status: 400 }
-      );
+    const input = await validateWatchInput(await request.json());
+    const action = request.nextUrl.searchParams.get('action');
+    if (action === 'preview') {
+      const snapshot = await collectSnapshot();
+      const matches = evaluateRule({ ...input, id: 'preview', enabled: true, createdAt: '', lastFiredAt: null }, snapshot);
+      return NextResponse.json({ count: matches.length, matches: matches.slice(0, 10).map(m => ({ label: m.label, layer: m.layer })), availableLayers: Object.keys(snapshot) });
     }
-    // Reject internal targets at create time so an SSRF rule never persists.
-    // Dispatch re-checks via safeFetch, since DNS can change after creation.
-    const guard = await validateHost(parsed.hostname);
-    if (!guard.ok) {
-      return NextResponse.json(
-        { error: `webhookUrl target is not allowed: ${guard.reason}` },
-        { status: 400 }
-      );
+    if (action === 'test') {
+      // Only the operator's explicit Test delivery button enters this path.
+      const { results } = await dispatchAlert({ id: 'test', ruleId: null, title: `Vantage test — ${input.name}`, body: 'This is a test notification. No watch match has been recorded.', severity: 'INFO', lat: null, lng: null, payload: null, createdAt: new Date().toISOString(), delivered: null }, input.channels, { webhookUrl: input.webhookUrl });
+      return NextResponse.json({ results });
     }
-    webhookUrl = parsed.toString();
-  }
-
-  const rule = createRule({
-    name,
-    kind: body.kind as WatchKind,
-    spec: body.spec as never,
-    channels,
-    webhookUrl,
-  });
-  return NextResponse.json({ rule }, { status: 201 });
+    if (action) throw new Error('Unknown watch action.');
+    return NextResponse.json({ rule: createRule(input) }, { status: 201 });
+  } catch (e) { return failure(e); }
 }
 
 export async function PATCH(request: NextRequest) {
   const id = request.nextUrl.searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id query param is required.' }, { status: 400 });
-
-  let body: { enabled?: boolean };
+  if (!id || !getRule(id)) return NextResponse.json({ error: 'Watch not found.' }, { status: 404 });
   try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 });
-  }
-  setRuleEnabled(id, body.enabled !== false);
-  return NextResponse.json({ ok: true });
+    const body: unknown = await request.json();
+    if (!record(body)) throw new Error('A watch object is required.');
+    if ('spec' in body) return NextResponse.json({ rule: updateRule(id, await validateWatchInput(body)) });
+    if ('enabled' in body) {
+      if (typeof body.enabled !== 'boolean') throw new Error('enabled must be boolean.');
+      setRuleEnabled(id, body.enabled);
+    } else if ('snoozeMinutes' in body) {
+      if (typeof body.snoozeMinutes !== 'number' || !Number.isFinite(body.snoozeMinutes) || body.snoozeMinutes < 0 || body.snoozeMinutes > 10080) throw new Error('Snooze must be 0–10080 minutes.');
+      snoozeRule(id, body.snoozeMinutes ? new Date(Date.now() + body.snoozeMinutes * 60000).toISOString() : null);
+    } else throw new Error('Specify enabled, snoozeMinutes, or a complete watch.');
+    return NextResponse.json({ rule: getRule(id) });
+  } catch (e) { return failure(e); }
 }
 
 export async function DELETE(request: NextRequest) {
   const id = request.nextUrl.searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id query param is required.' }, { status: 400 });
+  if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 });
   deleteRule(id);
   return NextResponse.json({ ok: true });
 }

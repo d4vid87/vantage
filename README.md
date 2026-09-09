@@ -94,7 +94,7 @@ Ollama is the default deliberately: the operational picture never leaves your ma
 Three kinds of watch, all persisted server-side so they keep firing whether or not a browser tab is open:
 
 - **Geofence** — draw a polygon, get alerted when a new aircraft / vessel / quake / event enters it
-- **Entity** — watch an ICAO24, MMSI, wallet address, Telegram channel or sanctioned name
+- **Entity** — watch an exact aircraft ICAO24, callsign or registration, or vessel MMSI/name
 - **Threshold** — *any M5+ quake*, optionally constrained to a bounding box
 
 Rules are evaluated by an **in-process scheduler** (`instrumentation.ts`) that fetches the feeds itself every `VANTAGE_ALERT_INTERVAL_MS` — so alerts fire with no browser tab open, which is the entire point of persisting them server-side. Matching is **edge-triggered**: a record alerts once per rule, however often the evaluator runs. Delivery fans out to any combination of four channels, each failing independently — a dead Discord webhook never stops the email:
@@ -106,7 +106,9 @@ VANTAGE_SMTP_HOST=smtp.example.com
 VANTAGE_WEBHOOK_URL=https://my-automation/inbox
 ```
 
-Alerts are written to SQLite **before** dispatch, so a delivery outage costs you a notification, never the alert.
+All new matches are written to SQLite **before** dispatch. Bursts use at most ten notifications per rule, with additional matches grouped into a summary. The Live Alerts **Inbox** shows saved alerts, delivery outcomes and acknowledgement controls (up to the latest 500).
+
+The watch editor validates supported fields, previews matches without saving or sending, and supports editing and temporary muting. Vessel watches require AIS credentials; ACLED watches require ACLED credentials. Wallet, Telegram and sanctions entity watches are not supported. Test notifications require an explicit button click.
 
 ### 3. Investigations and dossiers
 
@@ -164,7 +166,9 @@ ollama pull llama3.1
 | AI | Ollama / Anthropic Messages API / Gemini |
 | Alerts | Discord webhooks, ntfy, nodemailer, generic webhook |
 | Auth | HMAC-signed session cookies (Web Crypto) |
-| Tests | Vitest — 580 passing |
+| Tests | Vitest — run `npm test` |
+
+Run `npm run lint` and `npm run build` before committing. Lint blocks correctness errors; legacy explicit `any` annotations remain visible as warnings while feed contracts are tightened. The production build runs strict TypeScript checking. Narrow effect-rule exceptions document synchronization with browser storage, native APIs or request loading state.
 
 ---
 
@@ -190,12 +194,27 @@ Set a time and Vantage writes itself a daily read-out of the live picture and
 pushes it to your alert channels — no tab open, no cloud round-trip:
 
 ```bash
-VANTAGE_DAILY_BRIEF=07:00     # local time; unset disables it
+VANTAGE_DAILY_BRIEF=07:00     # unset disables it
+VANTAGE_BRIEF_TIMEZONE=America/Chicago  # optional; defaults to server timezone
 ```
 
 The brief is written by whichever `VANTAGE_AI_PROVIDER` is configured, so with
 the default Ollama the operational picture never leaves the machine. Past briefs
 are stored in SQLite and readable from the BRIEFS panel, or `GET /api/briefs`.
+The panel shows the next run and timezone. Failed generation preserves the previous
+baseline and retries after five minutes; concurrent requests share one generation.
+
+## Everyday controls
+
+Feed Health shows each active feed’s last successful refresh, errors and a retry
+button. Failed refreshes retain the last data; hidden tabs pause polling. Low-power
+mode slows polling and reduces interface animation. Setup checks verify SQLite
+writes and local Ollama availability, and report optional credentials.
+
+Copilot receives the active map viewport with feed timestamps and supports stop,
+retry and copy. Saved views can be imported/exported as JSON. Investigations keep
+notes and a browser recovery draft with an unsaved-change warning. Tool panels
+support Escape and keyboard focus restoration.
 
 ---
 

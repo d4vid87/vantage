@@ -77,3 +77,10 @@ describe('cachedSource', () => {
     expect(await b()).toEqual([cam('b')]);
   });
 });
+
+it('honors negative-cache backoff after a cold failure', async () => {
+  let calls = 0;
+  const load = cachedSource('offline', async () => { calls++; throw new Error('offline'); });
+  await load(); await load();
+  expect(calls).toBe(1);
+});

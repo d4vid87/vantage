@@ -16,7 +16,10 @@ import type { LiveDetection } from '@/lib/malware-intel';
 import ScaleBar from '@/components/ScaleBar';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { applySettings, loadSavedSettings } from '@/lib/style-tokens';
-import { mapIodaOutages, mergeOutages } from '@/lib/internet-outages';
+import { mapContext } from '@/lib/ai/context';
+import { MAP_FEEDS, feedDue, feedInterval, type MapFeed, type MapFeedStatus } from '@/lib/map-feeds';
+import pkg from '../../package.json';
+import { mergeOutages } from '@/lib/internet-outages';
 import SharePanel from '@/components/SharePanel';
 import ViewPresets from '@/components/ViewPresets';
 import KeyboardShortcuts from '@/components/KeyboardShortcuts';
@@ -70,8 +73,8 @@ function useIsMobile() {
 const UptimeClock = () => {
   const [uptime, setUptime] = useState('00:00:00');
   const startTime = useRef(0);
-  if (startTime.current === 0) startTime.current = Date.now();
   useEffect(() => {
+    startTime.current = Date.now();
     const iv = setInterval(() => {
       const e = Math.floor((Date.now() - startTime.current) / 1000);
       setUptime(`${String(Math.floor(e/3600)).padStart(2,'0')}:${String(Math.floor((e%3600)/60)).padStart(2,'0')}:${String(e%60).padStart(2,'0')}`);
@@ -141,10 +144,13 @@ function ViewSegment({ active, onClick, title, icon: Icon, label, layoutId }: {
 
 export default function Dashboard() {
   const dataRef = useRef<any>({});
-  const [dataVersion, setDataVersion] = useState(0);
-  const data = dataRef.current;
+  const receivedAt = useRef<Record<string, number>>({});
+  const feedState = useRef<Record<string, MapFeedStatus>>({});
+  const [feedStatuses, setFeedStatuses] = useState<MapFeedStatus[]>([]);
+  const [lowPower, setLowPower] = useState(false);
+  const [malwareError, setMalwareError] = useState(false);
+  const [data, setData] = useState<Record<string, any>>({});
 
-  const [backendStatus, setBackendStatus] = useState<'connecting' | 'connected' | 'error'>('connecting');
   const [mapView, setMapView] = useState({ zoom: 2.5, latitude: 20, longitude: 0 });
   const [flyToLocation, setFlyToLocation] = useState<{ lat: number; lng: number; zoom?: number; ts: number } | null>(null);
   const [globalStats, setGlobalStats] = useState<any>(null);
@@ -292,7 +298,6 @@ export default function Dashboard() {
   }, []);
 
   const isMobile = useIsMobile();
-  const startTime = useRef(Date.now());
   const geocodeCache = useRef<Map<string, string>>(new Map());
   const geocodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastGeocodedPos = useRef<{ lat: number; lng: number } | null>(null);
@@ -365,6 +370,8 @@ export default function Dashboard() {
     const layers = p.get('layers');
     if (layers) {
       const active = layers.split(',');
+      // Restore the browser URL layer selection after hydration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveLayers(prev => {
         const next = { ...prev };
         Object.keys(next).forEach(k => { (next as any)[k] = active.includes(k); });
@@ -423,7 +430,8 @@ export default function Dashboard() {
   // Keyboard shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as Element)?.tagName)) return;
+      if (e.key === 'Escape') { setShowCopilot(false); setShowWatchlists(false); setShowBriefs(false); setShowFeedHealth(false); setShowSavedViews(false); setShowRisk(false); }
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as Element)?.tagName)) return;
       if (e.key === 'f' && !e.ctrlKey) {
         if (document.fullscreenElement) document.exitFullscreen();
         else document.documentElement.requestFullscreen();
@@ -501,6 +509,8 @@ export default function Dashboard() {
   useEffect(() => {
     try {
       const restored = deserializeShapes(localStorage.getItem(STORAGE_KEY));
+      // Restore browser-local drawing storage after hydration.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (restored.length) setDrawnPolygons(restored);
     } catch { /* storage unavailable — start empty */ }
   }, []);
@@ -511,8 +521,7 @@ export default function Dashboard() {
 
   // ── Tripwires ──
   // Re-sweep every watched AOI whenever live data refreshes and record what
-  // changed. Keyed off dataVersion rather than `data` so this runs once per
-  // refresh instead of once per render.
+  // changed. Keyed off the published data snapshot, once per feed refresh.
   useEffect(() => {
     if (watched.size === 0) return;
     const now = Date.now();
@@ -527,22 +536,15 @@ export default function Dashboard() {
       watchBaselines.current[shape.id] = baseline;
       fresh.push(...events);
     }
+    // Append events from the previous external-feed baseline; this is a history, not derived display state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (fresh.length) setWatchEvents(log => appendEvents(log, fresh));
-  }, [dataVersion, watched, drawnPolygons]);
+  }, [data, watched, drawnPolygons]);
 
   // ── Analyst copilot grounding ──
   // Built lazily at send time so the copilot always sees the current picture
   // rather than whatever was loaded when the panel opened.
-  const buildCopilotContext = useCallback(() => {
-    const d = dataRef.current as Record<string, unknown[]>;
-    return {
-      earthquakes: (d.earthquakes ?? []).slice(0, 40),
-      news: (d.news ?? d.liveNews ?? []).slice(0, 30),
-      threats: (d.conflicts ?? d.threats ?? []).slice(0, 30),
-      cyberAlerts: (d.cyberThreats ?? d.cyber ?? []).slice(0, 20),
-      timestamp: new Date().toISOString(),
-    };
-  }, []);
+  const buildCopilotContext = useCallback(() => mapContext(dataRef.current, activeLayers, mapCenter?.bounds ?? null, receivedAt.current), [activeLayers, mapCenter]);
 
   // The most recently drawn polygon, offered to the watchlist panel as the
   // geometry for a new geofence.
@@ -610,288 +612,55 @@ export default function Dashboard() {
     );
   }, [drawnPolygons]);
 
-  // ── SHARED FETCH UTILITY (Fixes #107 — single definition, not 3 copies) ──
-  /* `skipWhenHidden` is for background polling only — skipping a *user-initiated*
-     load (a layer toggle, or first paint in a background tab) leaves the caller
-     believing it fetched, so the layer stays empty until a full reload.
-     Returns whether data actually landed, so callers can retry. */
-  const fetchEndpoint = useCallback(async (
-    url: string,
-    transform?: (d: any) => any,
-    options?: RequestInit,
-    { skipWhenHidden = false }: { skipWhenHidden?: boolean } = {},
-  ): Promise<boolean> => {
-    if (skipWhenHidden && typeof document !== 'undefined' && document.hidden) return false;
+  // One fetch path owns retry, freshness and in-flight deduplication for map feeds.
+  const activeFeeds = useMemo(() => MAP_FEEDS.filter(f => (!f.layers || f.layers.some(k => activeLayers[k as keyof typeof activeLayers])) && (!f.capability || capabilities[f.capability])), [activeLayers, capabilities]);
+  const refreshFeed = useCallback(async (feed: MapFeed, force = false) => {
+    const interval = feedInterval(feed, lowPower);
+    const previous = feedState.current[feed.key];
+    if (previous?.loading || (!force && !feedDue(previous, interval))) return;
+    feedState.current[feed.key] = { ...previous, key: feed.key, interval, lastAttempt: Date.now(), loading: true };
+    setFeedStatuses(Object.values(feedState.current));
     try {
-      // Force the browser to bypass its local disk cache for real-time data
-      const res = await fetch(url, { ...options, cache: 'no-store' });
-      if (res.ok) {
-        const json = await res.json();
-        const d = transform ? transform(json) : json;
-        dataRef.current = { ...dataRef.current, ...d };
-        setDataVersion(v => v + 1);
-        setBackendStatus('connected');
-        return true;
+      const response = await fetch(feed.url, { cache: 'no-store', signal: AbortSignal.timeout(45_000) });
+      const json = await response.json();
+      if (!response.ok || json.error) throw new Error(json.error || `HTTP ${response.status}`);
+      if (feed.key === 'markets' && !json.count) throw new Error('No market quotes returned; retrying shortly.');
+      const values = feed.transform ? feed.transform(json) : json;
+      dataRef.current = { ...dataRef.current, ...values };
+      if (feed.key === 'internet_outages' || feed.key === 'cloudflare') {
+        dataRef.current.cf_outages = mergeOutages(dataRef.current.cloudflare_outages ?? [], dataRef.current.ioda_outages ?? []);
       }
-      return false;
+      if (feed.key === 'space_weather') setSpaceWeather(json);
+      for (const key of Object.keys(values)) receivedAt.current[key] = Date.now();
+      feedState.current[feed.key] = { key: feed.key, interval, lastSuccess: Date.now(), lastAttempt: Date.now(), loading: false };
+      setData(dataRef.current);
     } catch (e) {
-      console.warn('[VANTAGE] Suppressed error:', e instanceof Error ? e.message : e);
-      setBackendStatus('error');
-      return false;
-    }
-  }, []);
+      feedState.current[feed.key] = { ...feedState.current[feed.key], loading: false, error: e instanceof Error ? e.message : 'Request failed' };
+    } finally { setFeedStatuses(Object.values(feedState.current)); }
+  }, [lowPower]);
 
-  // ── PROGRESSIVE DATA LOADING (request-optimized) ──
   useEffect(() => {
-    // Priority 1: Core feeds (always needed for panels)
-    const eqUrl = 'https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_day.geojson';
-    const eqTransform = (data: any) => ({ earthquakes: (data.features || []).map((f: any) => ({ id: f.id, lat: f.geometry?.coordinates?.[1] || 0, lng: f.geometry?.coordinates?.[0] || 0, depth: f.geometry?.coordinates?.[2] || 0, magnitude: f.properties?.mag, place: f.properties?.place, time: f.properties?.time, url: f.properties?.url, tsunami: f.properties?.tsunami, type: f.properties?.type, felt: f.properties?.felt, alert: f.properties?.alert })) });
-    fetchEndpoint(eqUrl, eqTransform);
-    fetchEndpoint('/api/news');
-    /* A cold start can time out every upstream quote and return an all-empty
-       feed. Waiting a full poll interval to find out leaves the panel blank for
-       15 minutes, so retry a few times up-front until instruments actually land. */
-    const marketRetries: ReturnType<typeof setTimeout>[] = [];
-    const loadMarkets = async (attempt = 0) => {
-      await fetchEndpoint('/api/markets', d => ({ markets: d }));
-      if ((dataRef.current.markets?.count || 0) === 0 && attempt < 3) {
-        marketRetries.push(setTimeout(() => loadMarkets(attempt + 1), 15000));
-      }
-    };
-    const marketTimer = setTimeout(() => loadMarkets(), 800);
-
-    // Priority 2: Space Weather (needed for MarketsPanel)
-    const spaceTimer = setTimeout(async () => {
-      try {
-        const r = await fetch('/api/space-weather');
-        if (r.ok) setSpaceWeather(await r.json());
-      } catch (e) { console.warn('[VANTAGE] Suppressed error:', e instanceof Error ? e.message : e); }
-    }, 5000);
-
-    // Polling — OPTIMIZED intervals to minimize edge requests
-    const intervals = [
-      setInterval(() => fetchEndpoint(eqUrl, eqTransform, undefined, { skipWhenHidden: true }), 900000),  // 15 min (was 5)
-      setInterval(() => fetchEndpoint('/api/news', undefined, undefined, { skipWhenHidden: true }), 1800000),        // 30 min (was 10)
-      setInterval(() => fetchEndpoint('/api/markets', d => ({ markets: d }), undefined, { skipWhenHidden: true }), 900000), // 15 min (was 5)
-    ];
-    return () => {
-      clearTimeout(marketTimer);
-      marketRetries.forEach(clearTimeout);
-      clearTimeout(spaceTimer);
-      intervals.forEach(clearInterval);
-    };
-  }, [fetchEndpoint]);
-
-  // ── LAYER-AWARE DATA LOADING — only fetch when layer is toggled ON ──
-  const layerFetchedRef = useRef<Set<string>>(new Set());
+    const refresh = () => { if (!document.hidden) activeFeeds.forEach(f => { void refreshFeed(f); }); };
+    refresh();
+    const timer = setInterval(refresh, 10_000);
+    document.addEventListener('visibilitychange', refresh);
+    return () => { clearInterval(timer); document.removeEventListener('visibilitychange', refresh); };
+  }, [activeFeeds, refreshFeed]);
+  const states = activeFeeds.map(f => feedStatuses.find(status => status.key === f.key));
+  const failed = states.filter(f => f?.error).length + (activeLayers.malware && malwareError ? 1 : 0);
+  const backendStatus = failed ? (states.some(f => f?.lastSuccess) ? 'partial' : 'error') : states.some(f => f?.lastSuccess) ? 'connected' : 'connecting';
+  // Restore the browser-local performance preference after hydration.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { try { setLowPower(localStorage.getItem('vantage-low-power') === '1'); } catch {} }, []);
   useEffect(() => {
-
-    // Flights
-    if (activeLayers.flights || activeLayers.military || activeLayers.jets || activeLayers.private) {
-      if (!layerFetchedRef.current.has('flights')) {
-        fetchEndpoint('/api/flights');
-        layerFetchedRef.current.add('flights');
-      }
-    }
-    // Satellites (any satellite sub-layer triggers fetch)
-    const anySatLayer = activeLayers.satellites || activeLayers.sat_comms || activeLayers.sat_military || activeLayers.sat_navigation || activeLayers.sat_earth || activeLayers.sat_science;
-    if (anySatLayer && !layerFetchedRef.current.has('satellites')) {
-      // Keep the moment the positions were propagated for. The catalogue is
-      // fetched once and never re-polled, so by the time an orbit is requested
-      // these markers can be a long way out of date — the orbit route needs the
-      // marker's epoch to draw a track that still passes through it.
-      fetchEndpoint('/api/satellites', d => ({ ...d, satellites_at: d.timestamp }));
-      layerFetchedRef.current.add('satellites');
-    }
-    // Fires
-    if (activeLayers.fires && !layerFetchedRef.current.has('fires')) {
-      fetchEndpoint('/api/fires');
-      layerFetchedRef.current.add('fires');
-    }
-    // CCTV
-    if (activeLayers.cctv && !layerFetchedRef.current.has('cctv')) {
-      fetchEndpoint(`/api/cctv?region=all&_t=${Date.now()}`);
-      layerFetchedRef.current.add('cctv');
-    }
-    // Maritime
-    if (activeLayers.maritime && !layerFetchedRef.current.has('maritime')) {
-      fetchEndpoint('/api/maritime', d => ({ maritime_ports: d.ports, maritime_chokepoints: d.chokepoints, maritime_ships: d.ships }));
-      layerFetchedRef.current.add('maritime');
-    }
-    // Balloons
-    if (activeLayers.balloons && !layerFetchedRef.current.has('balloons')) {
-      fetchEndpoint('/api/balloons', d => ({ balloons: d.balloons }));
-      layerFetchedRef.current.add('balloons');
-    }
-    // Radiation
-    if (activeLayers.radiation && !layerFetchedRef.current.has('radiation')) {
-      fetchEndpoint('/api/radiation', d => ({ radiation: d.stations }));
-      layerFetchedRef.current.add('radiation');
-    }
-    // Live News
-    if (activeLayers.live_news && !layerFetchedRef.current.has('live_news')) {
-      fetchEndpoint('/api/live-news', d => ({ live_feeds: d.feeds }));
-      layerFetchedRef.current.add('live_news');
-    }
-    // Weather
-    if (activeLayers.weather && !layerFetchedRef.current.has('weather')) {
-      fetchEndpoint('/api/weather', d => ({ weather_events: d.events }));
-      layerFetchedRef.current.add('weather');
-    }
-    // Infrastructure
-    if (activeLayers.infrastructure && !layerFetchedRef.current.has('infrastructure')) {
-      fetchEndpoint('/api/infrastructure', d => ({ infrastructure: d.infrastructure }));
-      layerFetchedRef.current.add('infrastructure');
-    }
-    // Global Incidents (GDELT)
-    if (activeLayers.global_incidents && !layerFetchedRef.current.has('gdelt')) {
-      fetchEndpoint('/api/gdelt', d => ({ gdelt: d.events }));
-      layerFetchedRef.current.add('gdelt');
-    }
-
-    // Submarine Cables
-    if (activeLayers.cables && !layerFetchedRef.current.has('cables')) {
-      (async () => {
-        try {
-          const ts = Date.now();
-      const res = await fetch(`/data/submarine-cables.json?v=${ts}`);
-          if (res.ok) {
-             const cablesData = await res.json();
-             dataRef.current = { ...dataRef.current, submarine_cables: cablesData.features };
-             setDataVersion(v => v + 1);
-          }
-        } catch (e) { console.warn('Cables fetch failed'); }
-      })();
-      layerFetchedRef.current.add('cables');
-    }
-
-
-    // Live Malware (abuse.ch) is pushed, not fetched — see the SSE subscription below.
-
-    // Live Cyber Attacks (animated arcs)
-    if ((activeLayers as any).cyber_attacks && !layerFetchedRef.current.has('cyber_attacks')) {
-      fetchEndpoint('/api/cyber-attacks', d => ({ cyber_attacks: d.attacks }));
-      layerFetchedRef.current.add('cyber_attacks');
-    }
-
-    /* Mark before awaiting so a re-render mid-flight cannot double-fetch, then
-       release the mark if nothing landed — otherwise one failed request leaves
-       the layer permanently empty. */
-    const loadLayerOnce = (key: string, url: string, transform: (d: any) => any) => {
-      if (layerFetchedRef.current.has(key)) return;
-      layerFetchedRef.current.add(key);
-      fetchEndpoint(url, transform).then(ok => {
-        if (!ok) layerFetchedRef.current.delete(key);
-      });
-    };
-
-    // GDELT 2.0 geocoded events
-    if ((activeLayers as any).gdelt_events) {
-      loadLayerOnce('gdelt_events', '/api/gdelt-events?limit=600', d => ({ gdelt_events: d.events }));
-    }
-
-    // Air quality
-    if ((activeLayers as any).air_quality) {
-      loadLayerOnce('air_quality', '/api/air-quality', d => ({ air_quality: d.stations }));
-    }
-
-    // Disease outbreaks
-    if ((activeLayers as any).disease) {
-      loadLayerOnce('disease', '/api/disease', d => ({ disease: d.outbreaks }));
-    }
-
-    // Volcanic activity
-    if ((activeLayers as any).volcanoes) {
-      loadLayerOnce('volcanoes', '/api/volcanoes', d => ({ volcanoes: d.volcanoes }));
-    }
-
-    // US power outages
-    if ((activeLayers as any).power_outages) {
-      loadLayerOnce('power_outages', '/api/power-outages', d => ({ power_outages: d.outages }));
-    }
-
-    // Instability index — same country polygons, coloured by score
-    if ((activeLayers as any).country_risk) {
-      loadLayerOnce('country_risk', '/api/country-risk', d => ({ country_risk: d.countries }));
-    }
-
-    // Travel advisories — joined onto the shared country polygons
-    if ((activeLayers as any).travel_advisories) {
-      loadLayerOnce('travel_advisories', '/api/travel-advisories', d => ({ travel_advisories: d.advisories }));
-    }
-
-    // GPS/GNSS interference — hex polygons decoded server-side
-    if ((activeLayers as any).gps_jamming) {
-      loadLayerOnce('gps_jamming', '/api/gps-jamming', d => ({ gps_jamming: d.cells }));
-    }
-
-    // ACLED conflict events (credential-gated)
-    if ((activeLayers as any).acled && capabilities.acled) {
-      loadLayerOnce('acled', '/api/acled', d => ({ acled: d.events }));
-    }
-
-    // Ransomware victims
-    if ((activeLayers as any).ransomware) {
-      loadLayerOnce('ransomware', '/api/ransomware', d => ({ ransomware: d.victims }));
-    }
-
-    // Tor exit nodes by country
-    if ((activeLayers as any).tor_exits) {
-      loadLayerOnce('tor_exits', '/api/tor-exits', d => ({ tor_exits: d.countries }));
-    }
-
-    // Ukraine frontline control
-    if ((activeLayers as any).frontlines) {
-      loadLayerOnce('frontlines', '/api/frontlines', d => ({ frontlines: d.frontlines }));
-    }
-
-    // Internet disruptions — IODA is keyless and always queried; Cloudflare
-    // Radar is merged over the top when a token is configured, since its
-    // annotations name a cause where IODA only reports that connectivity fell.
-    if ((activeLayers as any).cf_outages || (activeLayers as any).cf_attacks) {
-      if (!layerFetchedRef.current.has('internet_outages')) {
-        layerFetchedRef.current.add('internet_outages');
-        fetchEndpoint('/api/radar', d => ({ cf_outages: mapIodaOutages(d.outages ?? []) }))
-          .then(ok => {
-            if (!ok) layerFetchedRef.current.delete('internet_outages');
-            if (!capabilities.cloudflare) return;
-            // Runs second so the merge sees the IODA set already in dataRef.
-            return fetchEndpoint('/api/cloudflare-radar', d => ({
-              cf_outages: mergeOutages(d.outages ?? [], dataRef.current.cf_outages ?? []),
-              cf_attack_origins: d.attack_origins ?? [],
-            }));
-          });
-      }
-    }
-
-
-  }, [activeLayers, capabilities]);
-
-  // ── LAYER-AWARE POLLING — only poll data for active layers ──
-  useEffect(() => {
-    const intervals: ReturnType<typeof setInterval>[] = [];
-    if (activeLayers.flights || activeLayers.military || activeLayers.jets || activeLayers.private) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/flights'), 300000)); // 5 min (was 2 min)
-    }
-
-    if (activeLayers.balloons) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/balloons', d => ({ balloons: d.balloons })), 300000)); // 5m
-    }
-    if (activeLayers.radiation) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/radiation', d => ({ radiation: d.stations })), 300000)); // 5m
-    }
-    if (activeLayers.maritime) {
-      intervals.push(setInterval(() => fetchEndpoint('/api/maritime', d => ({ maritime_ports: d.ports, maritime_chokepoints: d.chokepoints, maritime_ships: d.ships })), 10000)); // 10s
-    }
-    if ((activeLayers as any).cyber_attacks) {
-      intervals.push(setInterval(() => {
-        layerFetchedRef.current.delete('cyber_attacks');
-        fetchEndpoint('/api/cyber-attacks', d => ({ cyber_attacks: d.attacks }));
-        layerFetchedRef.current.add('cyber_attacks');
-      }, 10000)); // 10s — rapid refresh
-    }
-    return () => intervals.forEach(clearInterval);
-  }, [activeLayers, fetchEndpoint]);
+    document.body.dataset.lowPower = String(lowPower);
+    return () => { delete document.body.dataset.lowPower; };
+  }, [lowPower]);
+  const changeLowPower = (enabled: boolean) => {
+    setLowPower(enabled);
+    try { localStorage.setItem('vantage-low-power', enabled ? '1' : '0'); } catch {}
+  };
+  const openAlertInbox = useCallback(() => { setShowAlerts(true); setShowIntel(false); setShowMarkets(false); }, []);
 
   /* ── LIVE MALWARE — pushed over SSE while the layer is on ──
      Detections arrive when URLhaus reports them rather than on a timer, so
@@ -913,7 +682,8 @@ export default function Dashboard() {
 
     const commit = () => {
       dataRef.current = { ...dataRef.current, malware_threats: [...byIp.values()] };
-      setDataVersion(v => v + 1);
+      setData(dataRef.current);
+      setMalwareError(false);
     };
 
     source.onmessage = ev => {
@@ -941,7 +711,7 @@ export default function Dashboard() {
             commit();
           }
         }
-        setBackendStatus('connected');
+
       } catch {
         // One malformed frame must not tear down the subscription.
       }
@@ -951,9 +721,9 @@ export default function Dashboard() {
        the store replays a snapshot on connect so a drop self-heals. Only a
        readyState of CLOSED means it has given up — reporting the transient
        ones would flag the backend as down every time a connection recycles. */
-    source.onopen = () => setBackendStatus('connected');
+
     source.onerror = () => {
-      if (source.readyState === EventSource.CLOSED) setBackendStatus('error');
+      if (source.readyState === EventSource.CLOSED) setMalwareError(true);
     };
 
     return () => source.close();
@@ -967,11 +737,10 @@ export default function Dashboard() {
   // Produces node coordinates for the SDK network mesh visualization.
   // Does NOT duplicate existing layer visuals — SDK layer is LINES ONLY.
   // Cameras are excluded — they have their own dedicated layer.
-  useEffect(() => {
+  const mapData = useMemo(() => {
     const anyActive = activeLayers.sdk_sea || activeLayers.sdk_air || activeLayers.sdk_naval;
     if (!anyActive) {
-      dataRef.current = { ...dataRef.current, sdk_entities: [] };
-      return;
+      return { ...data, sdk_entities: [] };
     }
 
     const sdkEntities: any[] = [];
@@ -1039,8 +808,8 @@ export default function Dashboard() {
       }
     }
 
-    dataRef.current = { ...dataRef.current, sdk_entities: sdkEntities };
-  }, [dataVersion, activeLayers.sdk_sea, activeLayers.sdk_air, activeLayers.sdk_naval]);
+    return { ...data, sdk_entities: sdkEntities };
+  }, [data, activeLayers.sdk_sea, activeLayers.sdk_air, activeLayers.sdk_naval]);
 
   const totalFlights = useMemo(() => (
     (data.commercial_flights?.length||0)+(data.private_flights?.length||0)+(data.private_jets?.length||0)+(data.military_flights?.length||0)
@@ -1066,14 +835,14 @@ export default function Dashboard() {
               animation: 'splashScanDrift 8s linear infinite',
             }} />
 
-            {/* ── V4.2 badge — top-left ── */}
+            {/* ── Version badge — top-left ── */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.6 }}
               transition={{ delay: 0.8, duration: 0.5 }}
               className="absolute top-6 left-6 z-[2] font-mono text-[11px] tracking-[0.3em] text-[var(--gold-primary)]"
             >
-              V4.2
+              V{pkg.version}
             </motion.div>
 
 
@@ -1248,7 +1017,7 @@ export default function Dashboard() {
       <ErrorBoundary name="Map">
         <VantageMap 
           key={vantageTheme}
-          data={data} 
+          data={mapData}
           activeLayers={activeLayers} 
           projection={mapProjection} 
           mapStyle={mapStyle === 'satellite' ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : 'dark'} 
@@ -1428,7 +1197,7 @@ export default function Dashboard() {
 {updateAvailable && <a href="https://github.com/d4vid87/vantage/releases" target="_blank" rel="noopener noreferrer" className="pointer-events-auto" title={`Update available: v${updateAvailable}`} style={{ color: 'var(--gold-primary)', fontWeight: 700 }}>UPDATE v{updateAvailable}</a>}
                 {spaceWeather && <span className="hidden lg:inline" title={`Geomagnetic Storm Index — Kp${spaceWeather.kp_index}`}>SOLAR: <span style={{ color: spaceWeather.storm_color, fontWeight: 700 }}>Kp{spaceWeather.kp_index}</span></span>}
 
-        <span className="text-[11px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.4.1</span>
+        <span className="text-[11px] font-bold tracking-[0.2em] text-[var(--text-muted)] opacity-50">V.{pkg.version}</span>
       </motion.div>
 
 
@@ -1447,7 +1216,10 @@ export default function Dashboard() {
         activeRing={activeDrawnRing}
       />
       <BriefPanel open={showBriefs} onClose={() => setShowBriefs(false)} />
-      <FeedHealthPanel open={showFeedHealth} onClose={() => setShowFeedHealth(false)} />
+      <FeedHealthPanel open={showFeedHealth} onClose={() => setShowFeedHealth(false)}
+        browserFeeds={activeFeeds.map(f => ({ ...(feedStatuses.find(status => status.key === f.key) ?? { key: f.key }), interval: feedInterval(f, lowPower) }))}
+        onRetry={key => { const feed = activeFeeds.find(f => f.key === key); if (feed) void refreshFeed(feed, true); }}
+        lowPower={lowPower} onLowPower={changeLowPower} />
       <SavedViewsPanel
         open={showSavedViews}
         onClose={() => setShowSavedViews(false)}
@@ -1459,7 +1231,7 @@ export default function Dashboard() {
         }}
       />
       <RiskPanel open={showRisk} onClose={() => setShowRisk(false)} />
-      <AlertNotifications />
+      <AlertNotifications onOpen={openAlertInbox} />
       <CommandPalette
         panels={[
           { id: 'layers', label: 'Layer Panel' },
