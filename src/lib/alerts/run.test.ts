@@ -164,3 +164,18 @@ it('rolls back seen keys when alert persistence fails', async () => {
   db().exec('DROP TRIGGER reject_alert');
   expect(await runEvaluation(snapshot)).toHaveLength(1);
 });
+
+it('quiet hours retain every match without delivery; grouping delivers one batch', async () => {
+  const {dashboardSettings,saveDashboardSettings}=await import('../dashboard/settings');
+  const {DEFAULT_NOTIFICATION_POLICY}=await import('./notification-policy');
+  const {listAlerts}=await import('./store');
+  const fetcher=vi.fn(async()=>new Response('ok'));vi.stubGlobal('fetch',fetcher);
+  const date=new Date();const time=(offset:number)=>new Date(date.getTime()+offset).toISOString().slice(11,16);
+  saveDashboardSettings({...dashboardSettings(),notifications:{...DEFAULT_NOTIFICATION_POLICY,enabled:true,start:time(-3600000),end:time(3600000)}});
+  createRule({name:'Quiet quake',kind:'threshold',spec:{layer:'earthquakes',field:'magnitude',min:1},channels:['webhook'],webhookUrl:'https://hooks.test/inbox'});
+  const muted=await runEvaluation(snapshot);
+  expect(muted).toHaveLength(2);expect(listAlerts()).toHaveLength(2);expect(fetcher).not.toHaveBeenCalled();expect(muted[0].delivered.webhook).toContain('muted');
+  saveDashboardSettings({...dashboardSettings(),notifications:{...DEFAULT_NOTIFICATION_POLICY,grouped:true}});
+  const next={earthquakes:snapshot.earthquakes.map(e=>({...e,id:e.id+'next'}))};
+  await runEvaluation(next);expect(fetcher).toHaveBeenCalledTimes(1);expect(listAlerts()).toHaveLength(4);
+});

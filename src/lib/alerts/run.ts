@@ -1,3 +1,5 @@
+import {dashboardSettings} from '../dashboard/settings';
+import {notificationAllowed, DEFAULT_NOTIFICATION_POLICY, isSevereWeather} from './notification-policy';
 import { createHash } from 'node:crypto';
 import { quotes } from '../dashboard/finance';
 import { weatherAlerts, resolveGeometry, type WeatherAlert } from '../dashboard/weather';
@@ -37,6 +39,7 @@ export interface FiredAlert {
  */
 export async function runEvaluation(snapshot: FeedSnapshot): Promise<FiredAlert[]> {
   const fired: FiredAlert[] = [];
+  const policy = dashboardSettings().notifications ?? DEFAULT_NOTIFICATION_POLICY;
 
   for (const rule of listRules()) {
     if (!rule.enabled) continue;
@@ -61,7 +64,7 @@ export async function runEvaluation(snapshot: FeedSnapshot): Promise<FiredAlert[
       continue;
     }
     if (!alerts.length) continue;
-    const batches = alerts.length > MAX_ALERTS_PER_RULE
+    const batches = policy.grouped ? [alerts] : alerts.length > MAX_ALERTS_PER_RULE
       ? [...alerts.slice(0, MAX_ALERTS_PER_RULE - 1).map(a => [a]), alerts.slice(MAX_ALERTS_PER_RULE - 1)]
       : alerts.map(a => [a]);
     for (const batch of batches) {
@@ -69,9 +72,9 @@ export async function runEvaluation(snapshot: FeedSnapshot): Promise<FiredAlert[
         ...batch[0], title: `${rule.name} — ${batch.length} additional matches`,
         body: `${batch.length} new matches were saved. Open the Vantage alert inbox to review all of them.`,
         severity: (['CRITICAL', 'HIGH', 'ELEVATED', 'INFO'] as Alert['severity'][]).find(severity => batch.some(a => a.severity === severity))!,
-        payload: { count: batch.length },
+        payload: { count: batch.length, severeWeather: batch.some(isSevereWeather) },
       };
-      const { results } = await dispatchAlert(notification, rule.channels, { webhookUrl: rule.webhookUrl });
+      const { results } = notificationAllowed(policy, notification) ? await dispatchAlert(notification, rule.channels, { webhookUrl: rule.webhookUrl }) : {results:Object.fromEntries(rule.channels.map(c=>[c,"muted: quiet hours; stored in inbox"]))};
       for (const alert of batch) {
         recordDelivery(alert.id, results);
         fired.push({ ruleId: rule.id, alertId: alert.id, delivered: results });
@@ -235,7 +238,7 @@ export async function runAnomalyCheck(counts: Record<string, number>, now = Date
       payload: { kind: 'anomaly', layer, count, mean: verdict.mean, ratio: verdict.ratio },
     });
     if (enabled.length > 0) {
-      const { results } = await dispatchAlert(alert, enabled);
+      const { results } = notificationAllowed(dashboardSettings().notifications ?? DEFAULT_NOTIFICATION_POLICY, alert) ? await dispatchAlert(alert, enabled) : {results:Object.fromEntries(enabled.map(c=>[c,"muted: quiet hours; stored in inbox"]))};
       recordDelivery(alert.id, results);
     }
     firedCount++;

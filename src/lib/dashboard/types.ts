@@ -1,3 +1,4 @@
+import {validateNotificationPolicy, DEFAULT_NOTIFICATION_POLICY, type NotificationPolicy} from '../alerts/notification-policy';
 export type LayerStyle = {
   opacity: number;
   labels: "off" | "key" | "all";
@@ -28,6 +29,7 @@ export type GlobePreset = {
 export interface DashboardSettings {
   version: 1;
   revision: number;
+  notifications?: NotificationPolicy;
   symbols: string[];
   places: Place[];
   units: "us" | "metric";
@@ -145,6 +147,7 @@ export function validateSettings(v: unknown): DashboardSettings {
   return {
     version: 1,
     revision: Number(s.revision),
+    notifications: validateNotificationPolicy(s.notifications),
     symbols: [...new Set(s.symbols.map(symbolOf))],
     places,
     units: s.units as "us" | "metric",
@@ -206,6 +209,7 @@ export function validateSettings(v: unknown): DashboardSettings {
 export const DEFAULT_SETTINGS: DashboardSettings = {
   version: 1,
   revision: 0,
+  notifications: {...DEFAULT_NOTIFICATION_POLICY},
   symbols: [],
   places: [],
   units: "us",

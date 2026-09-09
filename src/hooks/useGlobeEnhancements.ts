@@ -21,6 +21,19 @@ export function useGlobeEnhancements(
   feedStatuses: MapFeedStatus[],
 ) {
   useEffect(() => {
+    const map=ref.current;if(!map||!ready)return;
+    const capture=(event:Event)=>{
+      const id=(event as CustomEvent).detail;
+      map.once('render',()=>{
+        try {window.dispatchEvent(new CustomEvent('vantage-snapshot-ready',{detail:{id,image:map.getCanvas().toDataURL('image/png')}}));}
+        catch {window.dispatchEvent(new CustomEvent('vantage-snapshot-ready',{detail:{id,error:'Map image unavailable. The text report can still be exported.'}}));}
+      });
+      map.triggerRepaint();
+    };
+    window.addEventListener('vantage-capture-snapshot',capture);
+    return ()=>window.removeEventListener('vantage-capture-snapshot',capture);
+  },[ref,ready]);
+  useEffect(() => {
     const map = ref.current;
     if (!map || !ready) return;
     const inspect = (event: maplibregl.MapMouseEvent) => {

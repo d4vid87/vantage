@@ -320,3 +320,13 @@ MIT — see [LICENSE](LICENSE).
 ### Personal finance, weather, and globe overlays
 
 The 3D globe now has a personal stock ticker, company news/snapshots, saved-place weather, radar and forecast overlays, and shared globe presets with appearance controls. Add symbols and places through the top dashboard's **Setup** panel. Personal financial data uses a server-only `FINNHUB_API_KEY`; weather does not require a key. New stock/weather watches use the existing inbox and delivery system. See [configuration, controls, limits, and API details](docs/dashboard-enhancements.md).
+
+### Personal Home, search, and offline snapshots
+
+Open **Home** in the top bar for saved places, followed stocks, earnings dates, unread stored alerts, and changes since this browser's previous visit. Search received map records, saved places/views, and workspace tools; company and worldwide-place searches use the existing providers. Selecting a located record enables its map layer. Incident comparisons cover up to 3,000 received records with stable IDs; alert comparisons cover the latest 500. Missing feeds are not evidence that nothing changed. **Mark reviewed** resets the comparison baseline.
+
+Home's **Notification controls** saves quiet hours (with an IANA timezone), optional high/critical weather bypass, and grouping. Each rule's matches can be delivered as one group per evaluation; browser alerts group per poll. Every match still reaches the stored inbox. Muted deliveries are not replayed, and explicit channel tests bypass quiet hours. Defaults preserve existing delivery behavior.
+
+**Situation snapshot & offline access** exports a standalone HTML report with the captured map, active layers, camera/mode, feed receipts and source links, up to 30 recent alerts, quotes, saved places, and notes. Print that file to PDF if needed. Optional browser-local offline capture refreshes once per minute while visible and online. Once saved, reloading `/` without a connection opens the dated, read-only snapshot; reconnect and reload to return to the live dashboard. This is a snapshot, not offline live feeds or an interactive tile archive. Disabling capture or signing out clears the saved snapshot. It may contain personal data, so enable it only on a trusted browser.
+
+Live stock quotes, company news, and financials require `FINNHUB_API_KEY` in the server environment. Restart the server after configuring it; Home reports whether the key is configured without exposing it. Provider coverage, delays, and unavailable results remain visible.

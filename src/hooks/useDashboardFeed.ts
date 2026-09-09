@@ -22,7 +22,7 @@ export function useDashboardFeed<T>(url: string | null, interval = 60000) {
       try {
         const r = await fetch(url!, {
           cache: "no-store",
-          signal: controller.signal,
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
         });
         const data = await r.json();
         if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
@@ -46,10 +46,12 @@ export function useDashboardFeed<T>(url: string | null, interval = 60000) {
     void load();
     const timer = setInterval(load, interval);
     document.addEventListener("visibilitychange", load);
+    window.addEventListener("online", load);
     return () => {
       controller.abort();
       clearInterval(timer);
       document.removeEventListener("visibilitychange", load);
+      window.removeEventListener("online", load);
     };
   }, [url, interval, revision]);
   return {

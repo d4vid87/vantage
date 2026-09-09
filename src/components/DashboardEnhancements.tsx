@@ -122,12 +122,19 @@ export default function DashboardEnhancements({
     [saving, setSaving] = useState(false),
     [notice, setNotice] = useState("");
   useEffect(() => {
-    if (panel) onPanelOpen();
+    if (panel) { onPanelOpen(); window.dispatchEvent(new Event("vantage-close-home")); }
   }, [panel, onPanelOpen]);
   useEffect(() => {
     const close = () => setPanel(null);
     window.addEventListener("vantage-close-dashboard", close);
     return () => window.removeEventListener("vantage-close-dashboard", close);
+  }, []);
+  useEffect(() => {
+    const weather = (event: Event) => { setPlaceId(String((event as CustomEvent).detail)); setPanel("weather"); };
+    const setup = () => setPanel("setup");
+    window.addEventListener("vantage-open-weather", weather);
+    window.addEventListener("vantage-open-setup", setup);
+    return () => { window.removeEventListener("vantage-open-weather", weather); window.removeEventListener("vantage-open-setup", setup); };
   }, []);
   const panelRef = usePanel<HTMLDivElement>(!!panel, () => setPanel(null));
   const [visible, setVisible] = useState<string[]>([]),
@@ -524,6 +531,7 @@ export default function DashboardEnhancements({
   return (
     <div className="enh-root">
       <div className="enh-bar">
+        <button onClick={() => window.dispatchEvent(new Event("vantage-open-home"))}>Home</button>
         <button
           className="overview-button"
           onClick={onOverview}

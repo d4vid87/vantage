@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
+import { notificationAllowed, DEFAULT_NOTIFICATION_POLICY, type NotificationPolicy } from '@/lib/alerts/notification-policy';
 import { BellRing, X } from 'lucide-react';
 
 const SEEN_KEY = 'vantage-notif-seen-v2';
@@ -23,6 +24,8 @@ interface AlertRow {
   body: string;
   severity: string;
   createdAt: string;
+  payload?: unknown;
+  delivered?: Record<string,string> | null;
 }
 
 export default function AlertNotifications({ onOpen }: { onOpen?: () => void }) {
@@ -52,7 +55,7 @@ export default function AlertNotifications({ onOpen }: { onOpen?: () => void }) 
       try {
         const res = await fetch('/api/alerts?limit=500');
         if (!res.ok || stop) return;
-        const { alerts } = (await res.json()) as { alerts: AlertRow[] };
+        const { alerts, notificationPolicy = DEFAULT_NOTIFICATION_POLICY } = (await res.json()) as { alerts: AlertRow[]; notificationPolicy?:NotificationPolicy };
         const fresh = (alerts ?? [])
           .filter(a => a.createdAt >= lastSeen.current && !seenIds.current.has(a.id));
         if (fresh.length === 0) return;
@@ -61,8 +64,10 @@ export default function AlertNotifications({ onOpen }: { onOpen?: () => void }) 
         lastSeen.current = newest;
         seenIds.current = new Set([...previousIds, ...fresh.filter(a => a.createdAt === newest).map(a => a.id)]);
         try { localStorage.setItem(SEEN_KEY, JSON.stringify({ at: newest, ids: [...seenIds.current] })); } catch { /* session dedupe still works */ }
-        const notifications = fresh.length <= MAX_PER_POLL ? fresh : [{
-          id: 'vantage-alert-burst', title: `${fresh.length}${alerts.length === 500 ? '+' : ''} new Vantage alerts`,
+        const eligible = fresh.filter(a=>!Object.values(a.delivered || {}).some(v=>v.startsWith('muted: quiet hours')) && notificationAllowed(notificationPolicy,a,new Date(a.createdAt)) && notificationAllowed(notificationPolicy,a));
+        if (!eligible.length) return;
+        const notifications = eligible.length <= MAX_PER_POLL && !notificationPolicy.grouped ? eligible : [{
+          id: 'vantage-alert-burst', title: `${eligible.length}${alerts.length === 500 ? '+' : ''} new Vantage alerts`,
           body: 'Open the stored alert inbox to review this burst.', severity: 'HIGH', createdAt: newest,
         }];
         for (const a of notifications) {

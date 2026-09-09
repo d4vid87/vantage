@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useState, useRef } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {Network, Plane, Ship, Satellite, Camera, CloudLightning, AlertTriangle, Crosshair, Megaphone, Sun, Layers, Search, X} from 'lucide-react';
 import StyleStudio from './StyleStudio';
@@ -208,6 +208,7 @@ function LayerPanel({
 }: LayerPanelProps) {
   const searchRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
+  useEffect(()=>{const close=()=>setOpen(false);window.addEventListener('vantage-close-layers',close);return()=>window.removeEventListener('vantage-close-layers',close);},[]);
   const [query, setQuery] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
   const [studioOpen, setStudioOpen] = useState(false);
@@ -357,7 +358,7 @@ function LayerPanel({
       <button
         className="layer-launch-button"
         aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {setOpen((v) => !v);window.dispatchEvent(new Event('vantage-close-home'));}}
       >
         <Layers size={18} />
         Layers<span>{count}</span>

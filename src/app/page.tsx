@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, BarChart3, Newspaper, Search, X, Globe, MapPinned, Route, Radar, Satellite, Moon, ExternalLink, AlertTriangle, Activity, Database, Wifi, Play, Network, Crosshair, Bluetooth, Pentagon, Radio , PenLine, Bot, Bell, Share2, FileText, HeartPulse, Bookmark } from 'lucide-react';
 import IntelFeed from '@/components/IntelFeed';
 import MarketsPanel from '@/components/MarketsPanel';
+import HomeWorkspace from '@/components/HomeWorkspace';
 import DashboardEnhancements from '@/components/DashboardEnhancements';
 import { EMPTY_GLOBE } from '@/lib/dashboard/globe';
 import ScmPanel from '@/components/ScmPanel';
@@ -1069,6 +1070,10 @@ export default function Dashboard() {
         />
       </ErrorBoundary>
 
+      <HomeWorkspace data={mapData} feeds={MAP_FEEDS.map(f=>({...feedStatuses.find(s=>s.key===f.key),key:f.key,interval:feedInterval(f,lowPower)}))} active={{...activeLayers,...Object.fromEntries(globeEnhancements.visible.map(k=>[k,true]))}} camera={{lat:mapView.latitude,lng:mapView.longitude,zoom:mapView.zoom,mode:globeEnhancements.mode,projection:mapProjection}} onOpen={openPersonalDashboard} onLocate={p=>setFlyToLocation({...p,zoom:8,ts:Date.now()})}
+        onRecord={hit=>{const aliases:Record<string,string>={commercial_flights:'flights',private_flights:'private',private_jets:'jets',military_flights:'military',maritime_ships:'maritime',maritime_ports:'maritime',maritime_chokepoints:'maritime',gdelt:'global_incidents',weather_events:'weather',submarine_cables:'cables',live_feeds:'live_news'};const layer=aliases[hit.category]||hit.category;setActiveLayers(prev=>layer in prev?{...prev,[layer]:true}:prev);if(hit.lat!=null&&hit.lng!=null)setFlyToLocation({lat:hit.lat,lng:hit.lng,zoom:8,ts:Date.now()});}}
+        onPreset={p=>{setActiveLayers(prev=>Object.fromEntries(Object.keys(prev).map(k=>[k,p.layers.includes(k)])) as typeof prev);setMapProjection(p.projection);setFlyToLocation({lat:p.lat,lng:p.lng,zoom:p.zoom,ts:Date.now()});}}
+        tools={Object.entries({'AI analyst copilot':setShowCopilot,Watchlists:setShowWatchlists,'Saved views':setShowSavedViews,'Feed health':setShowFeedHealth,'Intelligence briefs':setShowBriefs,Investigations:setShowGraph,'Instability index':setShowRisk,'OSINT Recon':setShowIntel,Markets:setShowMarkets,'Live Alerts':setShowAlerts,Draw:setShowDrawing,Directions:setShowDirections,Search:setShowDesktopSearch,ArcGIS:setShowArcGIS,'World Remote':setShowRemote,'Live from Space':setShowSpaceCam}).map(([label,setter])=>({label,run:()=>{closeWorkspacePanels();setter(true);}}))} />
       <DashboardEnhancements onPanelOpen={openPersonalDashboard} onOverview={() => setFlyToLocation({lat:20,lng:0,zoom:1.8,ts:Date.now()})} lowPower={lowPower} active={activeLayers} camera={{lat:mapView.latitude,lng:mapView.longitude,zoom:mapView.zoom}} projection={mapProjection} areas={drawnPolygons} onGlobe={setGlobeEnhancements} onLocate={p=>setFlyToLocation({...p,zoom:8,ts:Date.now()})} onPreset={p=>{setActiveLayers(prev=>Object.fromEntries(Object.keys(prev).map(k=>[k,p.layers.includes(k)])) as typeof prev);setMapProjection(p.projection);setFlyToLocation({lat:p.lat,lng:p.lng,zoom:p.zoom,ts:Date.now()});}} />
 
       {/* ── DIRECTIONS — opens beside the right-hand tool rail ── */}
@@ -1297,6 +1302,7 @@ export default function Dashboard() {
         if (!button) return;
         closeWorkspacePanels(button.getAttribute('aria-label') || '');
         window.dispatchEvent(new Event('vantage-close-dashboard'));
+        window.dispatchEvent(new Event('vantage-close-home'));
       }}>
         <header><span>Workspace</span><button aria-label={moreTools ? 'Show fewer tools' : 'Show all tools'} onClick={() => setMoreTools(v=>!v)}>{moreTools ? 'Less' : 'More'}</button></header>
         {/* ── Analyst tooling: copilot, watchlists, link analysis ── */}
