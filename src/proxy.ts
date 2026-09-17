@@ -44,6 +44,11 @@ function isPublicPath(path: string): boolean {
   );
 }
 
+function hasTickCredential(request: NextRequest, path: string): boolean {
+  const secret = process.env.VANTAGE_TICK_SECRET;
+  return path === '/api/alerts/tick' && Boolean(secret) && request.headers.get('x-vantage-tick-key') === secret;
+}
+
 /**
  * Optional, opt-in analytics.
  *
@@ -80,7 +85,7 @@ function reportPageView(request: NextRequest, event: NextFetchEvent): void {
 export async function proxy(request: NextRequest, event: NextFetchEvent) {
   const path = request.nextUrl.pathname;
 
-  if (authEnabled() && !isPublicPath(path)) {
+  if (authEnabled() && !isPublicPath(path) && !hasTickCredential(request, path)) {
     const session = await verifySession(request.cookies.get(SESSION_COOKIE)?.value);
     if (!session) {
       if (path.startsWith('/api/')) {

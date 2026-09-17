@@ -65,6 +65,15 @@ describe('cachedSource', () => {
     expect(await load()).toEqual([cam('good')]);
   });
 
+  it('accepts a valid empty event refresh when configured', async () => {
+    let current = [cam('resolved')];
+    const load = cachedSource<Cam>('events', async () => current, 10, { emptyIsFailure: false });
+    expect(await load()).toEqual([cam('resolved')]);
+    current = [];
+    await new Promise((r) => setTimeout(r, 25));
+    expect(await load()).toEqual([]);
+  });
+
   it('returns empty when the first fetch fails with nothing cached', async () => {
     const load = cachedSource<Cam>('t6', async () => { throw new Error('down'); });
     expect(await load()).toEqual([]);

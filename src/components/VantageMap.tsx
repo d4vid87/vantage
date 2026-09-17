@@ -27,6 +27,7 @@ interface SatelliteRow {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useGlobeEnhancements } from '@/hooks/useGlobeEnhancements';
 import { EMPTY_GLOBE, type GlobeEnhancements } from '@/lib/dashboard/globe';
+import { shouldRotateGlobe } from '@/lib/idle-rotation';
 
 import type { MapFeedStatus } from '@/lib/map-feeds';
 const NO_FEED_STATUS: MapFeedStatus[] = [];
@@ -45,7 +46,9 @@ interface VantageMapProps {
   mapStyle?: string;
   sweepData?: any;
   scanTargets?: any[];
-  demoMode?: boolean;
+  idleRotation?: boolean;
+  rotationBlocked?: boolean;
+  lowPower?: boolean;
   theme?: 'core' | 'ghost';
   drawnPolygons?: Array<{ id: string; name: string; geojson: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.LineString>; color: string }>;
   arcgisLayers?: Array<{ id: string; title: string; geojson: any; color?: string; opacity?: number }>;
@@ -104,7 +107,7 @@ function computeSolarTerminator(): [number, number][] {
 
 const EMPTY_FC = { type: 'FeatureCollection' as const, features: [] };
 
-function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE, data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [], demoMode = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {} }: VantageMapProps) {
+function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE, data, activeLayers, onEntityClick, onMouseCoords, onRightClick, onViewStateChange, flyToLocation, projection = 'globe', mapStyle = 'dark', sweepData, scanTargets = [], idleRotation = false, rotationBlocked = false, lowPower = false, theme = 'core', drawnPolygons = [], arcgisLayers = [], drawMode = null, onDrawComplete, onDrawProgress, onDrawCancel, drawCommand = null, onMapCenter, route = null, userLocation = null, followUser = false, onFollowInterrupt, navigating = false, aircraftAirports = {} }: VantageMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -118,7 +121,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
   const [palette, setPalette] = useState<MapPalette>(MAP_DEFAULTS);
   const paletteRef = useRef(palette);
   useEffect(() => { paletteRef.current = palette; }, [palette]);
-  const prevStyleRef = useRef(mapStyle);
+  const prevStyleRef = useRef('');
   const prevDrawnPolygonsRef = useRef<string[]>([]);
   const prevArcgisLayersRef = useRef<string[]>([]);
   const satLayerRef = useRef<ReturnType<typeof createSatelliteLayer> | null>(null);
@@ -186,52 +189,42 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapReady || !mapRef.current || !idleRotation) return;
     const map = mapRef.current;
+    const canvas = map.getCanvas();
+    let lastActivity = performance.now();
+    let lastFrame = lastActivity;
+    let spinReq = 0;
+    const interrupt = () => { lastActivity = performance.now(); };
+    for (const event of ['pointerdown', 'wheel', 'keydown']) canvas.addEventListener(event, interrupt, { passive: true });
 
-    // ── DEMO MODE SPINNING ──
-    let spinReq: number | undefined = undefined;
-    let isSpinning = false;
-    
-    const startSpinning = () => {
-      if (!map) return;
-      isSpinning = true;
-      let lastTime = performance.now();
-      
-      const frame = (time: number) => {
-        if (!isSpinning) return;
-        
-        // Only spin if the user is not actively dragging or zooming the map
-        if (!map.isMoving() && !map.isZooming()) {
-          const dt = time - lastTime;
-          const center = map.getCenter();
-          // Adjust spin speed: 0.5 degrees per second
-          center.lng += (0.5 * dt) / 1000;
-          map.setCenter(center);
-        }
-        
-        lastTime = time;
-        spinReq = requestAnimationFrame(frame);
-      };
-      
+    const frame = (time: number) => {
+      const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const hasOpenUi = Boolean(document.querySelector('[role="dialog"], .maplibregl-popup'));
+      if (shouldRotateGlobe({
+        enabled: idleRotation,
+        zoom: map.getZoom(),
+        idleMs: time - lastActivity,
+        hidden: document.hidden,
+        reducedMotion,
+        lowPower,
+        blocked: rotationBlocked || hasOpenUi || Boolean(selectedSat),
+        moving: map.isZooming() || map.isRotating(),
+      })) {
+        const center = map.getCenter();
+        center.lng += 0.18 * Math.min(time - lastFrame, 100) / 1000;
+        map.setCenter(center);
+      }
+      lastFrame = time;
       spinReq = requestAnimationFrame(frame);
     };
-
-    if (demoMode) {
-      startSpinning();
-    } else {
-      isSpinning = false;
-      if (spinReq) cancelAnimationFrame(spinReq);
-    }
+    spinReq = requestAnimationFrame(frame);
 
     return () => {
-      isSpinning = false;
-      if (spinReq) cancelAnimationFrame(spinReq);
-      if (typeof window !== 'undefined' && (window as any)._globeSpinTimer) {
-        clearInterval((window as any)._globeSpinTimer);
-      }
+      cancelAnimationFrame(spinReq);
+      for (const event of ['pointerdown', 'wheel', 'keydown']) canvas.removeEventListener(event, interrupt);
     };
-  }, [mapReady, demoMode]);
+  }, [mapReady, idleRotation, rotationBlocked, lowPower, selectedSat]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -249,7 +242,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     const baseOptions = {
       container,
       style: styleUrl,
-      center: [25.48, 42.70] as [number, number], zoom: 6.5, minZoom: 1.5, maxZoom: 18,
+      center: [0, 20] as [number, number], zoom: container.clientWidth < 600 ? 1.1 : 1.8, minZoom: 0.5, maxZoom: 18,
       attributionControl: false as const,
       maxPitch: 85,
       transformRequest: (url: string) => {
@@ -425,6 +418,13 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
         'circle-color': '#D32F2F',
         'circle-opacity': 0.9,
         'circle-stroke-width': 1, 'circle-stroke-color': '#000000', 'circle-stroke-opacity': 0.8,
+      }});
+      // A transparent target keeps the compact visual marker while making it
+      // practical to select with a mouse or finger.
+      map.addLayer({ id: 'malware-hit-area', type: 'circle', source: 'malware-nodes', paint: {
+        'circle-radius': ['interpolate',['linear'],['zoom'], 1,16, 5,18, 10,22],
+        'circle-color': '#D32F2F',
+        'circle-opacity': 0.01,
       }});
       /* Arrival beacon — expands and fades over the minute after a detection
          is pushed, then the feature drops out of the source entirely. */
@@ -1099,7 +1099,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     const CLICKABLE_LAYERS = new Set(['conflict-icons','cctv-dots','eq-circles','fires-heat',
       'gdelt-dots','weather-dots','infra-dots','maritime-dots','choke-dots','news-dots',
       'balloon-dots','rad-dots','ship-dots','sweep-device-dots','scan-targets-dots',
-      'sdk-sea','sdk-air','sdk-intel','malware-dots','cyber-heads','gdelt-events-dots',
+      'sdk-sea','sdk-air','sdk-intel','malware-hit-area','country-fill','cyber-heads','gdelt-events-dots',
       'cf-outage-dots','cf-attack-dots','flight-dots','military-dots','jet-dots','private-dots']);
 
     // Satellites are picked on the GPU: the pick pass runs the same vertex
@@ -1198,7 +1198,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     });
 
     // ── Malware Threats (Abuse.ch) ──
-    map.on('click', 'malware-dots', e => {
+    map.on('click', 'malware-hit-area', e => {
       if (!e.features?.length) return;
       const p = e.features[0].properties as any;
       const coords = (e.features[0].geometry as any).coordinates;
@@ -1228,6 +1228,24 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
         <div style="display:flex;gap:6px;">
           ${ref ? `<a href="${ref}" target="_blank" style="${linkStyle}flex:1;text-align:center;color:#E8E6E0;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);">URLHAUS REPORT ↗</a>` : ''}
         </div>
+      </div>`);
+    });
+
+    // Country polygons carry the advisory in feature-state, alongside their
+    // colour, so clicks always describe the same record currently on screen.
+    map.on('click', 'country-fill', e => {
+      const feature = e.features?.[0];
+      const state = feature?.state as Record<string, unknown> | undefined;
+      const level = Number(state?.advisoryLevel) || 0;
+      if (!feature || !level) return;
+      const p = feature.properties as Record<string, unknown>;
+      const url = urlSafe(String(state?.advisoryUrl || ''));
+      const updated = String(state?.advisoryUpdated || '');
+      popup(e.lngLat.toArray(), `<div style="${pStyle}border:1px solid ${htmlEsc(String(state?.color || '#78909C'))}80;min-width:250px;">
+        <div style="color:${htmlEsc(String(state?.color || '#78909C'))};font-size:12px;font-weight:700;margin-bottom:3px;">LEVEL ${level} · ${htmlEsc(String(state?.advisoryLabel || 'Travel advisory'))}</div>
+        <div style="color:#E8E6E0;font-size:15px;font-weight:700;margin-bottom:10px;">${htmlEsc(String(state?.advisoryCountry || p.name || p.iso || 'Unknown country'))}</div>
+        <div style="font-size:9px;color:#9CA3AF;margin-bottom:10px;">SOURCE: ${htmlEsc(String(state?.advisorySource || 'US State Department'))}${updated ? `<br/>UPDATED: ${htmlEsc(new Date(updated).toLocaleString())}` : ''}</div>
+        ${url ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="${linkStyle}color:#E8E6E0;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.05);">OFFICIAL ADVISORY ↗</a>` : ''}
       </div>`);
     });
 
@@ -1394,36 +1412,31 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
       });
     });
 
-    // ⚡ Live Cyber Attack Arcs (click on flying heads) ⚡
+    // Observed command-and-control indicators. Feodo does not identify an
+    // attacker origin or an attack path, so the map must not draw either.
     map.on('click', 'cyber-heads', e => {
       if (!e.features?.length) return;
       const p = e.features[0].properties as any;
       const coords = (e.features[0].geometry as any).coordinates;
-      const sevColor = (p.severity || 5) >= 8 ? '#FF1744' : (p.severity || 5) >= 6 ? '#FF6D00' : '#FFD600';
-      const sevLabel = (p.severity || 5) >= 8 ? 'CRITICAL' : (p.severity || 5) >= 6 ? 'HIGH' : 'MEDIUM';
+      const sevColor = '#E3B341';
       popup(coords, `<div style="${pStyle}border:1px solid ${sevColor}40;box-shadow:inset 0 0 20px ${sevColor}10, 0 0 15px ${sevColor}15;">
         <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid ${sevColor}30;padding-bottom:6px;margin-bottom:8px;">
-          <div style="color:${sevColor};font-size:12px;font-weight:700;letter-spacing:0.12em;text-shadow:0 0 6px ${sevColor}60;">⚡ ${htmlEsc((p.action || 'ATTACK').toUpperCase())}</div>
-          <div style="font-size:8px;padding:2px 6px;border-radius:3px;font-weight:700;letter-spacing:0.1em;background:${sevColor}20;color:${sevColor};border:1px solid ${sevColor}50;">${sevLabel}</div>
+          <div style="color:${sevColor};font-size:12px;font-weight:700;">COMMAND-AND-CONTROL INDICATOR</div>
+          <div style="font-size:8px;padding:2px 6px;border-radius:3px;background:${sevColor}20;color:${sevColor};border:1px solid ${sevColor}50;">OBSERVED</div>
         </div>
         <div style="color:#E8E6E0;font-size:11px;font-weight:bold;margin-bottom:10px;">${htmlEsc(p.malware || 'Unknown Payload')}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:9px;margin-bottom:8px;background:rgba(0,0,0,0.35);padding:8px;border-radius:4px;border:1px solid rgba(255,255,255,0.04);">
-          <div><span style="color:#5C5A54;font-size:7px;letter-spacing:0.1em;">SOURCE ORIGIN</span><br/><span style="color:#FF5252;font-family:monospace;">${p.src_lat || '?'}°, ${p.src_lng || '?'}°</span></div>
-          <div><span style="color:#5C5A54;font-size:7px;letter-spacing:0.1em;">TARGET</span><br/><span style="color:#00E5FF;font-family:monospace;">${htmlEsc(p.target_ip || '—')}</span></div>
-          <div><span style="color:#5C5A54;font-size:7px;letter-spacing:0.1em;">TARGET COUNTRY</span><br/><span style="color:#E8E6E0;">${htmlEsc(p.target_country || '—')}</span></div>
+          <div><span style="color:#5C5A54;font-size:7px;">ENDPOINT</span><br/><span style="color:#00E5FF;font-family:monospace;">${htmlEsc(p.target_ip || '—')}</span></div>
+          <div><span style="color:#5C5A54;font-size:7px;">COUNTRY</span><br/><span style="color:#E8E6E0;">${htmlEsc(p.target_country || '—')} (approximate)</span></div>
+          <div><span style="color:#5C5A54;font-size:7px;">LAST OBSERVED</span><br/><span style="color:#E8E6E0;">${htmlEsc(p.observed_at || 'Unknown')}</span></div>
           <div><span style="color:#5C5A54;font-size:7px;letter-spacing:0.1em;">PORT</span><br/><span style="color:#FFD600;font-family:monospace;">${p.port || '—'}</span></div>
-        </div>
-        <div style="display:flex;gap:6px;align-items:center;">
-          <div style="flex:1;height:3px;border-radius:2px;background:linear-gradient(90deg, ${sevColor}00, ${sevColor});opacity:0.5;"></div>
-          <span style="font-size:7px;color:#5C5A54;letter-spacing:0.15em;">SEVERITY ${p.severity || '?'}/10</span>
-          <div style="flex:1;height:3px;border-radius:2px;background:linear-gradient(90deg, ${sevColor}, ${sevColor}00);opacity:0.5;"></div>
         </div>
         <div style="margin-top:8px;font-size:7px;color:#5C5A54;text-align:center;letter-spacing:0.1em;">SOURCE: ABUSE.CH FEODO TRACKER</div>
       </div>`);
     });
 
     // ── Generic hover for clickables ──
-    ['conflict-icons','cctv-dots','eq-circles','fires-heat','gdelt-dots','weather-dots','infra-dots','maritime-dots','choke-dots','news-dots','balloon-dots','rad-dots','ship-dots','sweep-device-dots','scan-targets-dots','sdk-sea','sdk-sea-glow','sdk-sea-atmo','sdk-air','sdk-air-glow','sdk-air-atmo','sdk-intel','sdk-intel-glow','sdk-intel-atmo','malware-dots','cyber-heads','gdelt-events-dots','cf-outage-dots','cf-attack-dots'].forEach(layer => {
+    ['conflict-icons','cctv-dots','eq-circles','fires-heat','gdelt-dots','weather-dots','infra-dots','maritime-dots','choke-dots','news-dots','balloon-dots','rad-dots','ship-dots','sweep-device-dots','scan-targets-dots','sdk-sea','sdk-sea-glow','sdk-sea-atmo','sdk-air','sdk-air-glow','sdk-air-atmo','sdk-intel','sdk-intel-glow','sdk-intel-atmo','malware-hit-area','country-fill','cyber-heads','gdelt-events-dots','cf-outage-dots','cf-attack-dots'].forEach(layer => {
       map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer'; });
       map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
     });
@@ -1970,9 +1983,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     setGeo('network-mesh', meshLinks);
   }, [mapReady, activeLayers.malware, data.malware_threats, setGeo]);
 
-  // ══ LIVE CYBER ATTACKS — Threat network with real-time flow animation ══
-  const cyberAnimRef = useRef<number>(0);
-
+  // ══ CYBER INDICATORS — observed endpoints at approximate country centroids ══
   useEffect(() => {
     if (!mapReady || !mapRef.current) return;
     const al = activeLayers as any;
@@ -1980,7 +1991,6 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
 
     // Clean up when toggled off or no data
     if (!al.cyber_attacks || !attacks?.length) {
-      cancelAnimationFrame(cyberAnimRef.current);
       setGeo('cyber-arcs', []);
       setGeo('cyber-heads', []);
       setGeo('cyber-impacts', []);
@@ -1989,68 +1999,22 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
 
     // Build static GeoJSON features (dots stay clickable)
     const dots: any[] = [];
-    const srcGlows: any[] = [];
-    const lines: any[] = [];
-
     for (const a of attacks) {
+      if (!Number.isFinite(a.lng) || !Number.isFinite(a.lat)) continue;
       dots.push({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: [a.dst_lng, a.dst_lat] },
+        geometry: { type: 'Point', coordinates: [a.lng, a.lat] },
         properties: {
-          malware: a.malware, action: a.action, target_ip: a.target_ip,
-          target_country: a.target_country, port: a.port, severity: a.severity,
-          status: a.status,
-          src_lat: a.src_lat.toFixed(2), src_lng: a.src_lng.toFixed(2),
-          dst_lat: a.dst_lat.toFixed(2), dst_lng: a.dst_lng.toFixed(2),
+          malware: a.malware, target_ip: a.target_ip, target_country: a.target_country,
+          port: a.port, status: a.status, observed_at: a.observed_at,
+          location_precision: a.location_precision,
         },
-      });
-      srcGlows.push({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [a.src_lng, a.src_lat] },
-        properties: { severity: a.severity },
-      });
-      lines.push({
-        type: 'Feature',
-        geometry: { type: 'LineString', coordinates: [[a.src_lng, a.src_lat], [a.dst_lng, a.dst_lat]] },
-        properties: { malware: a.malware, severity: a.severity },
       });
     }
 
     setGeo('cyber-heads', dots);
-    setGeo('cyber-impacts', srcGlows);
-    setGeo('cyber-arcs', lines);
-
-    // Animate: aggressive marching-ants with fast dash cycling
-    const map = mapRef.current;
-    let step = 0;
-    function animateFlow() {
-      step++;
-      if (!map) return;
-      try {
-        // Fast cycling dash pattern — creates visible movement along the line
-        const phase = (step * 0.15) % 6;
-        map.setPaintProperty('cyber-arcs-flow', 'line-dasharray', [2, 3 + phase * 0.4]);
-
-        // Alternate opacity on the core line for flicker effect
-        const coreFlicker = 0.55 + Math.sin(step * 0.05) * 0.15;
-        map.setPaintProperty('cyber-arcs-core', 'line-opacity', coreFlicker);
-
-        // Pulse target dots — breathing black nodes
-        const pulse = 1.5 + Math.sin(step * 0.1) * 0.6;
-        map.setPaintProperty('cyber-heads', 'circle-stroke-width', pulse);
-        map.setPaintProperty('cyber-heads', 'circle-stroke-color',
-          step % 30 < 15 ? '#222222' : '#444444'
-        );
-
-        // Pulse source glow — dark breathing aura
-        const glowPulse = 0.06 + Math.sin(step * 0.07) * 0.04;
-        map.setPaintProperty('cyber-impacts', 'circle-opacity', glowPulse);
-      } catch {}
-      cyberAnimRef.current = requestAnimationFrame(animateFlow);
-    }
-    cyberAnimRef.current = requestAnimationFrame(animateFlow);
-
-    return () => cancelAnimationFrame(cyberAnimRef.current);
+    setGeo('cyber-impacts', []);
+    setGeo('cyber-arcs', []);
   }, [mapReady, (activeLayers as any).cyber_attacks, data.cyber_attacks, setGeo]);
 
 
@@ -2153,15 +2117,28 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     if (!m || !m.getSource('countries')) return;
     const al = activeLayers as any;
     const byIso = new Map<string, string>();
+    const advisoryByIso = new Map<string, any>();
     if (al.travel_advisories && data.travel_advisories) {
-      for (const a of data.travel_advisories) byIso.set(a.iso, a.color);
+      for (const a of data.travel_advisories) {
+        byIso.set(a.iso, a.color);
+        advisoryByIso.set(a.iso, a);
+      }
     }
     // The index is the more specific read, so it wins where both are on.
     if (al.country_risk && data.country_risk) {
       for (const c of data.country_risk) byIso.set(c.code, c.color);
     }
     for (const { id, iso } of countryIds.current) {
-      m.setFeatureState({ source: 'countries', id }, { color: byIso.get(iso) ?? '' });
+      const advisory = advisoryByIso.get(iso);
+      m.setFeatureState({ source: 'countries', id }, {
+        color: byIso.get(iso) ?? '',
+        advisoryLevel: advisory?.level ?? 0,
+        advisoryLabel: advisory?.label ?? '',
+        advisoryCountry: advisory?.country ?? '',
+        advisoryUrl: advisory?.url ?? '',
+        advisoryUpdated: advisory?.updated ?? '',
+        advisorySource: advisory?.source ?? '',
+      });
     }
   }, [mapReady, countriesReady, data.travel_advisories, data.country_risk, (activeLayers as any).travel_advisories, (activeLayers as any).country_risk, activeLayers, data]);
 
@@ -2321,7 +2298,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     setVis(['cf-outage-halo','cf-outage-dots','cf-outage-label'], (activeLayers as any).cf_outages);
     setVis(['cf-attack-dots','cf-attack-label'], (activeLayers as any).cf_attacks);
 
-    setVis(['malware-glow','malware-dots','malware-label','malware-new-ring'], activeLayers.malware);
+    setVis(['malware-glow','malware-dots','malware-hit-area','malware-label','malware-new-ring'], activeLayers.malware);
     setVis(['network-mesh-atmo', 'network-mesh-glow', 'network-mesh-core'], activeLayers.internet_outages || activeLayers.malware);
     setVis(['cyber-arcs-atmo','cyber-arcs-glow','cyber-arcs-core','cyber-arcs-flow','cyber-heads','cyber-impacts','cyber-labels'], (activeLayers as any).cyber_attacks);
     setVis(['day-night-fill'], activeLayers.day_night);
@@ -2447,7 +2424,8 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
   // Fly-to
   useEffect(() => {
     if (!mapReady || !mapRef.current || !flyToLocation) return;
-    mapRef.current.flyTo({ center: [flyToLocation.lng, flyToLocation.lat], zoom: flyToLocation.zoom || 8, duration: 2000 });
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    mapRef.current.flyTo({ center: [flyToLocation.lng, flyToLocation.lat], zoom: flyToLocation.zoom || 8, duration: reducedMotion ? 0 : 1100, essential: false });
   }, [mapReady, flyToLocation]);
 
   // Dynamic projection switching (lightweight — no terrain DEM)
@@ -2457,19 +2435,20 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
     try {
       (map as any).setProjection({ type: projection });
       if (projection === 'globe') {
-        map.easeTo({ pitch: 20, duration: 1200 });
+        const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+        map.easeTo({ pitch: 0, duration: reducedMotion ? 0 : 700, essential: false });
         try {
           (map as any).setSky({
-            'sky-color': '#04040A',
-            'sky-horizon-blend': 0.5,
-            'horizon-color': '#0a0a1a',
-            'horizon-fog-blend': 0.3,
-            'fog-color': '#04040A',
-            'fog-ground-blend': 0.9,
+            'sky-color': '#01050b',
+            'sky-horizon-blend': 0.12,
+            'horizon-color': '#0b3855',
+            'horizon-fog-blend': 0.08,
+            'fog-color': '#061725',
+            'fog-ground-blend': 0.72,
           });
         } catch (e) { console.warn('[VANTAGE] Suppressed error:', e instanceof Error ? e.message : e); }
       } else {
-        map.easeTo({ pitch: 0, duration: 800 });
+        map.easeTo({ pitch: 0, duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 500, essential: false });
       }
     } catch (e) {
       console.warn('Projection switch failed:', e);
@@ -2559,7 +2538,27 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
             tileSize: 256,
             maxzoom: 18,
           });
-          map.addLayer({ id: 'satellite-layer', type: 'raster', source: 'satellite-tiles', paint: { 'raster-opacity': 0.85 } }, 'day-night-fill');
+          const layers = map.getStyle().layers || [];
+          const labelsAndBorders = layers.find(layer => /boundary|admin/.test(layer.id))?.id
+            || layers.find(layer => layer.type === 'symbol' && layer.layout?.['text-field'])?.id;
+          map.addLayer({
+            id: 'satellite-layer',
+            type: 'raster',
+            source: 'satellite-tiles',
+            paint: {
+              'raster-opacity': 0.72,
+              'raster-saturation': -0.24,
+              'raster-contrast': 0.1,
+              'raster-brightness-min': 0.08,
+              'raster-brightness-max': 0.72,
+              'raster-fade-duration': 250,
+            },
+          }, labelsAndBorders);
+          // MapLibre's globe renderer can miss the first raster repaint when a
+          // source is added immediately after style load; setting the explicit
+          // visibility schedules the same repaint as a user style toggle.
+          map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
+          map.triggerRepaint();
         } else {
           map.setLayoutProperty('satellite-layer', 'visibility', 'visible');
         }
@@ -3196,7 +3195,7 @@ function VantageMap({ feedStatuses = NO_FEED_STATUS, enhancements = EMPTY_GLOBE,
 
   return (
     <>
-      <div ref={containerRef} className="absolute inset-0 w-full h-full" />
+      <div ref={containerRef} className="vantage-map absolute inset-0 w-full h-full" aria-label="Interactive world map" />
       {mapReady && (
         <CctvPreviews
           mapRef={mapRef}

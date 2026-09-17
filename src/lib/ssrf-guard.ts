@@ -68,6 +68,19 @@ function ipv4InBlocked(ip: string): boolean {
 
 function ipv6InBlocked(ip: string): boolean {
   const lower = ip.toLowerCase().replace(/^\[/, '').replace(/\]$/, '');
+  // Node accepts expanded IPv6 literals. Normalize them before comparing so
+  // 0:0:0:0:0:0:0:1 cannot bypass the ::1 check.
+  const words = lower.split(':');
+  if (!lower.includes('::') && words.length === 8) {
+    const normalized = words.map(word => Number.parseInt(word || '0', 16));
+    if (normalized.every(Number.isFinite)) {
+      if (normalized.every(n => n === 0)) return true;
+      if (normalized.slice(0, 7).every(n => n === 0) && normalized[7] === 1) return true;
+      if (normalized.slice(0, 5).every(n => n === 0) && normalized[5] === 0xffff) {
+        return ipv4InBlocked(`${normalized[6] >> 8}.${normalized[6] & 255}.${normalized[7] >> 8}.${normalized[7] & 255}`);
+      }
+    }
+  }
   // Exact-match singletons first
   if (lower === '::' || lower === '::1') return true;
   for (const prefix of IPV6_BLOCK_PREFIXES) {
@@ -233,6 +246,10 @@ export function isRateLimited(ip: string, limit: number = 20, windowMs: number =
 }
 
 export function getClientIp(req: Request): string {
-  const forwarded = req.headers.get('x-forwarded-for');
-  return forwarded?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+  // Forwarding headers are trustworthy only when the deployment explicitly
+  // says a controlled reverse proxy overwrites them.
+  if (process.env.VANTAGE_TRUST_PROXY === 'true') {
+    return req.headers.get('x-real-ip')?.trim() || req.headers.get('x-forwarded-for')?.split(',').at(-1)?.trim() || 'unknown';
+  }
+  return 'direct';
 }

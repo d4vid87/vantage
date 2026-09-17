@@ -115,7 +115,11 @@ export default function FeedHealthPanel({ open, onClose, browserFeeds = [], onRe
             <strong>Map data freshness</strong>
             {browserFeeds.map(f => <div key={f.key} className="border-b py-1">
               <div className="flex justify-between gap-2"><span>{f.key.replaceAll('_', ' ')}</span><button aria-label={`Refresh ${f.key}`} disabled={f.loading} onClick={() => onRetry?.(f.key)}>{f.loading ? 'Loading…' : f.error ? 'Retry' : 'Refresh'}</button></div>
-              <p className={f.error ? 'text-amber-300' : 'opacity-70'}>{f.error ? `${f.lastSuccess ? 'Stale' : 'Unavailable'}: ${f.error}` : !f.lastSuccess ? 'Waiting for first response' : now - f.lastSuccess > (f.interval ?? Infinity) ? 'Refresh due' : 'Received successfully'} · Last received {ago(f.lastSuccess ?? null)}</p>
+              <p className={f.error || f.availability === 'stale' ? 'text-amber-300' : 'opacity-70'}>
+                {f.error ? `${f.lastSuccess ? 'Stale' : 'Unavailable'}: ${f.error}` : !f.lastSuccess ? 'Waiting for first response' : now - f.lastSuccess > (f.interval ?? Infinity) ? 'Refresh due' : 'Received successfully'} · Last received {ago(f.lastSuccess ?? null)}
+                {f.observedAt ? ` · observed ${new Date(f.observedAt).toLocaleString()}` : ''}
+                {f.source ? ` · ${f.source}` : ''}
+              </p>
             </div>)}
             <button className="gotham-btn" disabled={checking} onClick={diagnose}>{checking ? 'Checking…' : 'Run setup checks'}</button>
             {checks.map(c => <p key={c.name}><strong>{c.name}: {c.ok ? 'Ready' : 'Check'}</strong> — {c.detail}</p>)}

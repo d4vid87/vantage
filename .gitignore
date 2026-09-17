@@ -43,6 +43,7 @@ threatfox.json
 # Dev scripts (one-time migration helpers) — but ship the maintained ones
 scripts/*
 !scripts/backup.mjs
+!scripts/browser-smoke.cjs
 
 # AI agent config files
 CLAUDE.md

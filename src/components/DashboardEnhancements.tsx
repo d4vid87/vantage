@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePanel } from "@/hooks/usePanel";
 import { useDashboardFeed } from "@/hooks/useDashboardFeed";
 import MarketChart from "./MarketChart";
@@ -83,26 +83,6 @@ export default function DashboardEnhancements({
   onPreset,
   onLocate,
 }: Props) {
-  const tickerRef = useRef<HTMLDivElement>(null);
-  const [tickerMotion, setTickerMotion] = useState(false);
-  useEffect(() => {
-    if (!tickerMotion || lowPower) return;
-    const timer = setInterval(() => {
-      const el = tickerRef.current;
-      if (
-        !el ||
-        document.hidden ||
-        el.matches(":hover, :focus-within") ||
-        matchMedia("(prefers-reduced-motion: reduce)").matches
-      )
-        return;
-      el.scrollLeft =
-        el.scrollLeft >= el.scrollWidth - el.clientWidth - 1
-          ? 0
-          : el.scrollLeft + 1;
-    }, 50);
-    return () => clearInterval(timer);
-  }, [tickerMotion, lowPower]);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 10000);
@@ -531,63 +511,27 @@ export default function DashboardEnhancements({
   return (
     <div className="enh-root">
       <div className="enh-bar">
+        <div className="enh-brand" aria-label="Vantage intelligence workspace">
+          <strong>VANTAGE</strong><span>Intelligence workspace</span>
+        </div>
         <button onClick={() => window.dispatchEvent(new Event("vantage-open-home"))}>Home</button>
+        <button className="overview-button" onClick={onOverview} title="Show the whole Earth without changing your layers">Globe</button>
         <button
-          className="overview-button"
-          onClick={onOverview}
-          title="Show the whole Earth without changing your layers"
-        >
-          ◎ Overview
-        </button>
-        <button
+          className="enh-secondary"
           aria-expanded={panel === "finance"}
           onClick={() => setPanel(panel === "finance" ? null : "finance")}
         >
-          Stocks
+          Finance
         </button>
-        <div
-          ref={tickerRef}
-          className="enh-ticker"
-          aria-label="Personal stock ticker"
-        >
-          {settings?.symbols.length ? (
-            settings.symbols.map((s) => {
-              const q = quoteFeed.data?.find((x) => x.symbol === s);
-              return (
-                <button
-                  key={s}
-                  onClick={() => choose(s)}
-                  title={q?.error || "Open company details"}
-                >
-                  {s} <span>{q?.data ? "$" + number(q.data.price) : "—"}</span>{" "}
-                  <span
-                    className={
-                      Number(q?.data?.changePercent) >= 0
-                        ? "enh-up"
-                        : "enh-down"
-                    }
-                  >
-                    {q?.data ? number(q.data.changePercent) + "%" : ""}
-                  </span>
-                  {q?.status === "stale" ? " · stale" : ""}
-                </button>
-              );
-            })
-          ) : (
-            <button onClick={() => setPanel("setup")}>
-              Set up your watchlist
-            </button>
-          )}
-        </div>
+        <button className="enh-search" onClick={() => window.dispatchEvent(new Event("vantage-open-search"))}>Search</button>
         <button
+          className="enh-secondary"
           aria-expanded={panel === "weather"}
           onClick={() => setPanel(panel === "weather" ? null : "weather")}
         >
           Weather
         </button>
-        <button onClick={() => setPanel(panel === "globe" ? null : "globe")}>
-          Globe
-        </button>
+        <button onClick={() => window.dispatchEvent(new Event("vantage-feed-health"))}>Feed health</button>
       </div>
       {panel && (
         <section
@@ -1608,15 +1552,6 @@ export default function DashboardEnhancements({
                   <option value="us">Fahrenheit / mph / inches</option>
                   <option value="metric">Celsius / km/h / mm</option>
                 </select>
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={tickerMotion}
-                  onChange={(e) => setTickerMotion(e.target.checked)}
-                />
-                Auto-scroll ticker (pauses on hover/focus; disabled in low power
-                or reduced motion)
               </label>
               <h3>Company facilities / exchanges</h3>
               <p className="enh-muted">

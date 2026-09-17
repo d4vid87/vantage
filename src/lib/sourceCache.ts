@@ -52,6 +52,7 @@ export function cachedSource<T>(
   key: string,
   fetcher: () => Promise<T[]>,
   ttlMs: number = DEFAULT_TTL_MS,
+  options: { emptyIsFailure?: boolean } = {},
 ): () => Promise<T[]> {
   return async () => {
     const now = Date.now();
@@ -63,13 +64,15 @@ export function cachedSource<T>(
     const inflight = (async () => {
       try {
         const data = await fetcher();
-        // An empty result is treated as a failed refresh: keep whatever we had.
-        if (data.length === 0 && entry?.data.length) {
+        // Catalogs should retain a last-known-good index when a provider
+        // unexpectedly returns nothing. Event feeds can opt out: an empty
+        // successful response means the events really have cleared.
+        if (data.length === 0 && options.emptyIsFailure !== false && entry?.data.length) {
           recordFailure(key, 'empty response', true);
           store.set(key, { data: entry.data, expiresAt: now + ttlMs, inflight: null });
           return entry.data;
         }
-        if (data.length === 0) recordFailure(key, 'empty response', false);
+        if (data.length === 0 && options.emptyIsFailure !== false) recordFailure(key, 'empty response', false);
         else recordSuccess(key, data.length);
         store.set(key, { data, expiresAt: now + ttlMs, inflight: null });
         return data;

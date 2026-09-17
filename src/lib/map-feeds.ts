@@ -38,7 +38,11 @@ export const MAP_FEEDS: MapFeed[] = [
   { key: 'internet_outages', url: '/api/radar', layers: ['cf_outages', 'cf_attacks'], interval: minutes(5), transform: d => ({ ioda_outages: mapIodaOutages(d.outages as never) }) },
   { key: 'cloudflare', url: '/api/cloudflare-radar', layers: ['cf_outages', 'cf_attacks'], capability: 'cloudflare', interval: minutes(5), transform: d => ({ cloudflare_outages: d.outages, cf_attack_origins: d.attack_origins }) },
 ];
-export interface MapFeedStatus { key: string; lastSuccess?: number; lastAttempt?: number; error?: string; loading?: boolean; interval?: number }
+export interface MapFeedStatus {
+  key: string; lastSuccess?: number; lastAttempt?: number; error?: string;
+  loading?: boolean; interval?: number; source?: string; observedAt?: string;
+  retrievedAt?: string; availability?: 'current' | 'stale' | 'unavailable';
+}
 export function feedInterval(feed: MapFeed, lowPower: boolean) { return lowPower ? Math.max(60_000, feed.interval * 3) : feed.interval; }
 export function feedDue(status: MapFeedStatus | undefined, interval: number, now = Date.now()) {
   if (status?.loading) return false;

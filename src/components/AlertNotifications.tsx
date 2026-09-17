@@ -85,7 +85,7 @@ export default function AlertNotifications({ onOpen }: { onOpen?: () => void }) 
   if (permission !== 'default' || dismissed) return null;
 
   return (
-    <div className="gotham-panel" style={{ position: 'absolute', bottom: 96, right: 12, zIndex: 45, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 11 }}>
+    <div className="gotham-panel alert-permission" style={{ position: 'absolute', bottom: 96, right: 12, zIndex: 45, display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', fontSize: 11 }}>
       <BellRing size={13} style={{ color: 'var(--gold-primary, #D4AF37)' }} />
       <span style={{ color: '#CBD5E1' }}>Desktop alerts?</span>
       <button

@@ -17,6 +17,27 @@
 
 ---
 
+## The workspace
+
+Vantage opens on a cinematic, globe-first operational picture. Natural imagery,
+day/night shading and compact observations stay readable while layers and analyst
+tools remain one click away.
+
+![Vantage globe workspace](docs/screenshots/after-cinematic-1920.png)
+
+<table>
+  <tr>
+    <td width="65%"><img src="docs/screenshots/after-cinematic-1366.png" alt="Vantage desktop workspace at 1366 by 768"></td>
+    <td width="35%"><img src="docs/screenshots/after-cinematic-mobile.png" alt="Vantage mobile globe workspace"></td>
+  </tr>
+  <tr>
+    <td align="center">Desktop analyst workspace</td>
+    <td align="center">Responsive mobile view</td>
+  </tr>
+</table>
+
+---
+
 ## What Vantage is
 
 Vantage is a fork of [`simplifaisoul/osiris`](https://github.com/simplifaisoul/osiris), rebuilt around three things the original does not do:
@@ -294,6 +315,8 @@ cannot follow a login page.
 ## API
 
 Every route is documented in-app at **`/docs`** — a searchable catalog with parameters, response keys, required environment variables and failure modes, generated from [`src/app/docs/apiCatalog.ts`](src/app/docs/apiCatalog.ts).
+
+The [feed verification ledger](docs/FEED-VERIFICATION.md) records each upstream family, its consumers, credentials, timing and units, transformations, test evidence, and known coverage limits.
 
 ---
 
